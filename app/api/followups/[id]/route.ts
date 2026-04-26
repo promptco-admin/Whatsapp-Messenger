@@ -84,6 +84,19 @@ export async function PATCH(
     cols.push("variable_mapping = ?");
     vals.push(body.variable_mapping ? JSON.stringify(body.variable_mapping) : null);
   }
+  if (body.header !== undefined) {
+    cols.push("header_json = ?");
+    vals.push(
+      body.header && typeof body.header === "object" && body.header.type
+        ? JSON.stringify({
+            type: String(body.header.type),
+            media_id: body.header.media_id ? String(body.header.media_id) : undefined,
+            link: body.header.link ? String(body.header.link) : undefined,
+            filename: body.header.filename ? String(body.header.filename) : undefined,
+          })
+        : null,
+    );
+  }
 
   if (body.status === "done" || body.status === "cancelled") {
     cols.push("completed_at = CURRENT_TIMESTAMP");

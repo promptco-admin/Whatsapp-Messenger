@@ -17,6 +17,18 @@ function extractVarCount(t: Template): number {
   return new Set(m.map((s) => Number(s.replace(/[^\d]/g, "")))).size;
 }
 
+type HeaderMediaType = "image" | "video" | "document";
+
+function headerFormat(t: Template): "TEXT" | HeaderMediaType | null {
+  const h = t.components.find((c) => c.type === "HEADER");
+  if (!h) return null;
+  if (h.format === "TEXT") return "TEXT";
+  if (h.format === "IMAGE") return "image";
+  if (h.format === "VIDEO") return "video";
+  if (h.format === "DOCUMENT") return "document";
+  return null;
+}
+
 export type FollowupDialogContact = {
   id: number;
   name?: string | null;
@@ -36,6 +48,7 @@ export type FollowupRecord = {
   template_name: string | null;
   template_language: string | null;
   variable_mapping: string | null;
+  header_json: string | null;
   assigned_user_id: number | null;
 };
 
@@ -98,6 +111,11 @@ export function FollowupDialog({
   const [templateLanguage, setTemplateLanguage] = useState("");
   const [mapping, setMapping] = useState<VariableMapping[]>([]);
   const [customFieldKeys, setCustomFieldKeys] = useState<string[]>([]);
+  const [headerMediaId, setHeaderMediaId] = useState<string | null>(null);
+  const [headerUrl, setHeaderUrl] = useState("");
+  const [headerFilename, setHeaderFilename] = useState<string | null>(null);
+  const [headerPreview, setHeaderPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [assignee, setAssignee] = useState<string>("");
   const [users, setUsers] = useState<UserRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -159,6 +177,19 @@ export function FollowupDialog({
       } catch {
         setMapping([]);
       }
+      // Hydrate the saved media-header reference so editing doesn't lose it.
+      try {
+        const h = initial.header_json ? JSON.parse(initial.header_json) : null;
+        setHeaderMediaId(h?.media_id || null);
+        setHeaderUrl(h?.link || "");
+        setHeaderFilename(h?.filename || null);
+        setHeaderPreview(null); // we don't have the file blob anymore
+      } catch {
+        setHeaderMediaId(null);
+        setHeaderUrl("");
+        setHeaderFilename(null);
+        setHeaderPreview(null);
+      }
     } else {
       setTitle("Follow up");
       setNote("");
@@ -170,6 +201,10 @@ export function FollowupDialog({
       setTemplateLanguage("");
       setAssignee("");
       setMapping([]);
+      setHeaderMediaId(null);
+      setHeaderUrl("");
+      setHeaderFilename(null);
+      setHeaderPreview(null);
     }
     setErr(null);
   }, [open, initial]);
@@ -194,6 +229,32 @@ export function FollowupDialog({
     if (!contact) return "";
     return contact.name ? `${contact.name} (+${contact.wa_id})` : `+${contact.wa_id}`;
   }, [contact]);
+
+  const hdrFormat = selectedTemplate ? headerFormat(selectedTemplate) : null;
+  const needsHeaderMedia =
+    hdrFormat === "image" || hdrFormat === "video" || hdrFormat === "document";
+  const headerReady =
+    !needsHeaderMedia || !!headerMediaId || headerUrl.trim().length > 0;
+
+  async function uploadHeader(file: File) {
+    setUploading(true);
+    setErr(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/media/upload", { method: "POST", body: form });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Upload failed");
+      setHeaderMediaId(j.id);
+      setHeaderFilename(file.name);
+      setHeaderPreview(URL.createObjectURL(file));
+      setHeaderUrl("");
+    } catch (e: any) {
+      setErr(e.message || String(e));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function applyPreset(p: { label: string; minutes: number }) {
     const d = new Date();
@@ -242,6 +303,12 @@ export function FollowupDialog({
           setErr(`Variable {{${missingCustom + 1}}} needs a custom field name`);
           return;
         }
+        if (needsHeaderMedia && !headerReady) {
+          setErr(
+            `This template needs a ${hdrFormat} header — upload a file or paste a public URL`,
+          );
+          return;
+        }
       }
     }
     setBusy(true);
@@ -257,6 +324,16 @@ export function FollowupDialog({
         template_language: autoSend && kind === "template" ? templateLanguage.trim() : null,
         variable_mapping:
           autoSend && kind === "template" && mapping.length > 0 ? mapping : null,
+        header:
+          autoSend && kind === "template" && needsHeaderMedia
+            ? {
+                type: hdrFormat,
+                media_id: headerMediaId || undefined,
+                link: !headerMediaId && headerUrl.trim() ? headerUrl.trim() : undefined,
+                filename:
+                  hdrFormat === "document" ? headerFilename || undefined : undefined,
+              }
+            : null,
         assigned_user_id: assignee ? Number(assignee) : null,
       };
       if (mode === "create") payload.contact_id = contact?.id;
@@ -465,6 +542,62 @@ export function FollowupDialog({
                       <div className="line-clamp-3 whitespace-pre-wrap text-xs">
                         {templateBodyPreview(selectedTemplate)}
                       </div>
+                    </div>
+                  )}
+
+                  {selectedTemplate && needsHeaderMedia && (
+                    <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3">
+                      <div className="mb-2 text-[11px] font-medium text-amber-900">
+                        Header {hdrFormat} required — same file is sent to the contact
+                      </div>
+                      <div className="mb-2 flex items-center gap-2">
+                        <label className="cursor-pointer rounded border border-wa-border bg-white px-3 py-1.5 text-xs hover:bg-wa-panel">
+                          {uploading ? "Uploading…" : "Choose file"}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept={
+                              hdrFormat === "image"
+                                ? "image/*"
+                                : hdrFormat === "video"
+                                  ? "video/*"
+                                  : undefined
+                            }
+                            disabled={uploading}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) uploadHeader(f);
+                            }}
+                          />
+                        </label>
+                        <span className="text-xs text-wa-textMuted">or</span>
+                        <input
+                          value={headerUrl}
+                          onChange={(e) => {
+                            setHeaderUrl(e.target.value);
+                            setHeaderMediaId(null);
+                          }}
+                          placeholder="Public URL"
+                          className="flex-1 rounded border border-wa-border px-3 py-1.5 text-xs outline-none"
+                        />
+                      </div>
+                      {headerMediaId && (
+                        <div className="text-[11px] text-green-700">
+                          ✓ Uploaded {headerFilename ? `(${headerFilename})` : ""}
+                        </div>
+                      )}
+                      {!headerMediaId && headerUrl.trim() && (
+                        <div className="text-[11px] text-wa-textMuted">
+                          Will use this public URL at send time.
+                        </div>
+                      )}
+                      {headerPreview && hdrFormat === "image" && (
+                        <img
+                          src={headerPreview}
+                          className="mt-2 max-h-32 rounded border"
+                          alt="preview"
+                        />
+                      )}
                     </div>
                   )}
 

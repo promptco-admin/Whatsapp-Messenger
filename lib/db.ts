@@ -396,6 +396,15 @@ function migrate(d: Database.Database) {
   if (!contactColNames3.has("wa_profile_updated_at"))
     d.exec("ALTER TABLE contacts ADD COLUMN wa_profile_updated_at TEXT");
 
+  // Phase 10: media-header support on follow-ups. Templates whose HEADER is
+  // IMAGE / VIDEO / DOCUMENT need an attached media id (or public URL) at send
+  // time, otherwise Meta returns #132012 ("parameter format does not match").
+  // We store the same shape broadcasts use: { type, media_id?, link?, filename? }.
+  const followupCols = d.prepare("PRAGMA table_info(followups)").all() as Array<{ name: string }>;
+  const followupColNames = new Set(followupCols.map((c) => c.name));
+  if (!followupColNames.has("header_json"))
+    d.exec("ALTER TABLE followups ADD COLUMN header_json TEXT");
+
   // Phase 11: webhook health log. One row per inbound webhook POST. Used by
   // Settings → Webhook status to surface "last received N minutes ago", event
   // counts, and signature-verification health. Auto-pruned to last 1000 rows

@@ -114,6 +114,17 @@ export async function POST(req: Request) {
   const mapping: VariableMapping[] = Array.isArray(body.variable_mapping)
     ? body.variable_mapping
     : [];
+  // Header for templates with IMAGE/VIDEO/DOCUMENT format. Same shape broadcasts
+  // use: { type, media_id?, link?, filename? }. Stored as JSON.
+  const header =
+    body.header && typeof body.header === "object" && body.header.type
+      ? {
+          type: String(body.header.type),
+          media_id: body.header.media_id ? String(body.header.media_id) : undefined,
+          link: body.header.link ? String(body.header.link) : undefined,
+          filename: body.header.filename ? String(body.header.filename) : undefined,
+        }
+      : null;
   const assigneeId = body.assigned_user_id ? Number(body.assigned_user_id) : null;
 
   if (autoSend) {
@@ -136,8 +147,8 @@ export async function POST(req: Request) {
       `INSERT INTO followups
         (contact_id, title, note, due_at, status, auto_send,
          message_kind, message_body, template_name, template_language,
-         variable_mapping, assigned_user_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+         variable_mapping, header_json, assigned_user_id, created_by_user_id)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       contactId,
@@ -150,6 +161,7 @@ export async function POST(req: Request) {
       autoSend ? templateName : null,
       autoSend ? templateLanguage : null,
       autoSend ? JSON.stringify(mapping) : null,
+      autoSend && kind === "template" && header ? JSON.stringify(header) : null,
       assigneeId,
       user.id,
     );

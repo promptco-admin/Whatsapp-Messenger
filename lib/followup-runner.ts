@@ -26,6 +26,14 @@ type FollowupRow = {
   template_name: string | null;
   template_language: string | null;
   variable_mapping: string | null;
+  header_json: string | null;
+};
+
+type FollowupHeader = {
+  type: "image" | "video" | "document";
+  media_id?: string;
+  link?: string;
+  filename?: string;
 };
 
 type ContactRow = {
@@ -108,6 +116,22 @@ async function sendFollowupMessage(
       const mapping = safeParse<VariableMapping[]>(fu.variable_mapping, []);
       const values = mapping.map((m) => resolveVariable(m, contact));
       const components: TemplateSendComponent[] = [];
+      // Media header (IMAGE/VIDEO/DOCUMENT). Required when the template was
+      // approved with a media header — Meta returns #132012 if it's missing.
+      const header = safeParse<FollowupHeader | null>(fu.header_json, null);
+      if (header && (header.media_id || header.link)) {
+        const mediaRef: any = header.media_id
+          ? { id: header.media_id }
+          : { link: header.link };
+        if (header.type === "document" && header.filename) {
+          mediaRef.filename = header.filename;
+        }
+        const param = {
+          type: header.type,
+          [header.type]: mediaRef,
+        } as TemplateParameter;
+        components.push({ type: "header", parameters: [param] });
+      }
       if (values.length > 0) {
         components.push({
           type: "body",
