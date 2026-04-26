@@ -458,47 +458,55 @@ export function setSetting(key: string, value: any): void {
 /**
  * Upsert a contact.
  *
- * `name` here is the WhatsApp profile name as delivered by the inbound webhook
- * (or the manual name the agent typed when creating a contact via the UI).
+ * Two columns, two sources:
+ *  - `name` = user-given (CSV import, "new chat" dialog, contact edit). Only
+ *    written when `source` is "agent". Never auto-filled from WhatsApp.
+ *  - `wa_profile_name` = WhatsApp display name from the inbound webhook. Only
+ *    written when `source` is "wa_profile". Always refreshed to the latest.
  *
- * Behaviour:
- *  - On INSERT, both `name` and `wa_profile_name` get the value (so list
- *    pages have something to show immediately).
- *  - On UPDATE, `wa_profile_name` is always refreshed to the latest value
- *    Meta delivers, but the agent-editable `name` column is ONLY filled if
- *    it was previously NULL — manual edits are never clobbered.
+ * The UI falls back from name → wa_profile_name → phone (see displayContactName).
  */
-export function upsertContact(wa_id: string, name?: string | null): number {
+export function upsertContact(
+  wa_id: string,
+  name?: string | null,
+  source: "agent" | "wa_profile" = "agent",
+): number {
   const database = db();
   const existing = database
     .prepare("SELECT id, name, wa_profile_name FROM contacts WHERE wa_id = ?")
     .get(wa_id) as
     | { id: number; name: string | null; wa_profile_name: string | null }
     | undefined;
+  const trimmed = name && name.trim() ? name.trim() : null;
+
   if (existing) {
-    if (name && name.trim()) {
-      const trimmed = name.trim();
-      // Always refresh the profile-name column.
-      if (trimmed !== existing.wa_profile_name) {
-        database
-          .prepare(
-            "UPDATE contacts SET wa_profile_name = ?, wa_profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-          )
-          .run(trimmed, existing.id);
-      }
-      // Only seed `name` if the agent hasn't set one yet.
-      if (!existing.name) {
+    if (trimmed) {
+      if (source === "wa_profile") {
+        if (trimmed !== existing.wa_profile_name) {
+          database
+            .prepare(
+              "UPDATE contacts SET wa_profile_name = ?, wa_profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .run(trimmed, existing.id);
+        }
+      } else if (trimmed !== existing.name) {
         database.prepare("UPDATE contacts SET name = ? WHERE id = ?").run(trimmed, existing.id);
       }
     }
     return existing.id;
   }
-  const trimmed = name && name.trim() ? name.trim() : null;
+
+  const isWa = source === "wa_profile";
   const res = database
     .prepare(
       "INSERT INTO contacts (wa_id, name, wa_profile_name, wa_profile_updated_at) VALUES (?, ?, ?, ?)",
     )
-    .run(wa_id, trimmed, trimmed, trimmed ? new Date().toISOString() : null);
+    .run(
+      wa_id,
+      isWa ? null : trimmed,
+      isWa ? trimmed : null,
+      isWa && trimmed ? new Date().toISOString() : null,
+    );
   return Number(res.lastInsertRowid);
 }
 

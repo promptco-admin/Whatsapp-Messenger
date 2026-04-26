@@ -33,7 +33,10 @@ export async function GET(req: Request) {
   if (search) {
     const q = search.toLowerCase();
     contacts = contacts.filter(
-      (c) => (c.name || "").toLowerCase().includes(q) || c.wa_id.includes(q),
+      (c) =>
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.wa_profile_name || "").toLowerCase().includes(q) ||
+        c.wa_id.includes(q),
     );
   }
 

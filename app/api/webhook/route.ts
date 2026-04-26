@@ -95,7 +95,7 @@ export async function POST(req: Request) {
             .prepare("SELECT id, last_inbound_at FROM contacts WHERE wa_id = ?")
             .get(waId) as { id: number; last_inbound_at: string | null } | undefined;
           const isFirstInbound = !existingRow || !existingRow.last_inbound_at;
-          const contactId = upsertContact(waId, name);
+          const contactId = upsertContact(waId, name, "wa_profile");
 
           // Phase 6a: click-to-WhatsApp ad attribution.
           // Meta attaches `msg.referral` on the first inbound from an ad click.
