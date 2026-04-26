@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Template } from "@/lib/types";
+import type { Template, VariableMapping } from "@/lib/types";
 
 type Mode = "create" | "edit";
 
 function templateBodyPreview(t: Template): string {
   const body = t.components.find((c) => c.type === "BODY");
   return body?.text ? body.text.replace(/\s+/g, " ").trim() : "";
+}
+
+function extractVarCount(t: Template): number {
+  const body = t.components.find((c) => c.type === "BODY");
+  if (!body?.text) return 0;
+  const m = body.text.match(/\{\{(\d+)\}\}/g) || [];
+  return new Set(m.map((s) => Number(s.replace(/[^\d]/g, "")))).size;
 }
 
 export type FollowupDialogContact = {
@@ -89,6 +96,8 @@ export function FollowupDialog({
   const [messageBody, setMessageBody] = useState("");
   const [templateName, setTemplateName] = useState("");
   const [templateLanguage, setTemplateLanguage] = useState("");
+  const [mapping, setMapping] = useState<VariableMapping[]>([]);
+  const [customFieldKeys, setCustomFieldKeys] = useState<string[]>([]);
   const [assignee, setAssignee] = useState<string>("");
   const [users, setUsers] = useState<UserRow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -108,6 +117,17 @@ export function FollowupDialog({
       .then((j) => setTemplates(j.templates || []))
       .catch(() => setTemplates([]))
       .finally(() => setTemplatesLoading(false));
+    // Pull custom-field keys so the mapping picker can offer them.
+    fetch("/api/contacts")
+      .then((r) => (r.ok ? r.json() : { contacts: [] }))
+      .then((j) => {
+        const keys = new Set<string>();
+        for (const c of j.contacts || []) {
+          for (const k of Object.keys(c.custom_fields || {})) keys.add(k);
+        }
+        setCustomFieldKeys(Array.from(keys).sort());
+      })
+      .catch(() => setCustomFieldKeys([]));
   }, [open]);
 
   const selectedTemplate = useMemo(
@@ -130,6 +150,15 @@ export function FollowupDialog({
       setTemplateName(initial.template_name || "");
       setTemplateLanguage(initial.template_language || "");
       setAssignee(initial.assigned_user_id ? String(initial.assigned_user_id) : "");
+      // Hydrate any saved variable mapping; if it doesn't parse, fall back to [].
+      try {
+        const parsed = initial.variable_mapping
+          ? (JSON.parse(initial.variable_mapping) as VariableMapping[])
+          : [];
+        setMapping(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setMapping([]);
+      }
     } else {
       setTitle("Follow up");
       setNote("");
@@ -140,9 +169,26 @@ export function FollowupDialog({
       setTemplateName("");
       setTemplateLanguage("");
       setAssignee("");
+      setMapping([]);
     }
     setErr(null);
   }, [open, initial]);
+
+  // When the user picks a different template, reshape the mapping to match
+  // the variable count. Preserve the existing rows where possible (so toggling
+  // back and forth doesn't wipe what's been entered).
+  useEffect(() => {
+    if (!selectedTemplate) return;
+    const count = extractVarCount(selectedTemplate);
+    setMapping((prev) => {
+      if (count === 0) return [];
+      const next: VariableMapping[] = [];
+      for (let i = 0; i < count; i++) {
+        next.push(prev[i] || { source: "static", value: "" });
+      }
+      return next;
+    });
+  }, [selectedTemplate]);
 
   const contactLabel = useMemo(() => {
     if (!contact) return "";
@@ -180,6 +226,23 @@ export function FollowupDialog({
         setErr("Auto-send template follow-up needs template name + language");
         return;
       }
+      if (kind === "template") {
+        // Every static variable must have a value, otherwise WhatsApp rejects the send.
+        const missing = mapping.findIndex(
+          (m) => m.source === "static" && !m.value.trim(),
+        );
+        if (missing !== -1) {
+          setErr(`Variable {{${missing + 1}}} is empty — fill it in or pick a contact field`);
+          return;
+        }
+        const missingCustom = mapping.findIndex(
+          (m) => m.source === "custom_field" && !m.value.trim(),
+        );
+        if (missingCustom !== -1) {
+          setErr(`Variable {{${missingCustom + 1}}} needs a custom field name`);
+          return;
+        }
+      }
     }
     setBusy(true);
     try {
@@ -192,6 +255,8 @@ export function FollowupDialog({
         message_body: autoSend && kind === "text" ? messageBody : null,
         template_name: autoSend && kind === "template" ? templateName.trim() : null,
         template_language: autoSend && kind === "template" ? templateLanguage.trim() : null,
+        variable_mapping:
+          autoSend && kind === "template" && mapping.length > 0 ? mapping : null,
         assigned_user_id: assignee ? Number(assignee) : null,
       };
       if (mode === "create") payload.contact_id = contact?.id;
@@ -400,21 +465,70 @@ export function FollowupDialog({
                       <div className="line-clamp-3 whitespace-pre-wrap text-xs">
                         {templateBodyPreview(selectedTemplate)}
                       </div>
-                      {(() => {
-                        const m = templateBodyPreview(selectedTemplate).match(
-                          /\{\{(\d+)\}\}/g,
-                        );
-                        const count = m ? new Set(m).size : 0;
-                        if (count === 0) return null;
-                        return (
-                          <div className="mt-1 text-[10px] text-amber-700">
-                            ⚠ Template has {count} variable
-                            {count === 1 ? "" : "s"} — auto-send will leave them
-                            blank unless you wire variable_mapping. (Edit via API
-                            for now.)
+                    </div>
+                  )}
+
+                  {selectedTemplate && mapping.length > 0 && (
+                    <div className="mt-3">
+                      <div className="mb-2 text-[11px] font-medium text-wa-textMuted">
+                        Map each variable to contact data or a static value
+                      </div>
+                      <div className="space-y-2">
+                        {mapping.map((m, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <div className="w-12 text-xs text-wa-textMuted">{`{{${i + 1}}}`}</div>
+                            <select
+                              value={
+                                m.source === "custom_field"
+                                  ? `custom:${m.value}`
+                                  : m.source === "static"
+                                    ? "static"
+                                    : m.source
+                              }
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                const next = [...mapping];
+                                if (v === "static") next[i] = { source: "static", value: "" };
+                                else if (v === "name") next[i] = { source: "name", value: "" };
+                                else if (v === "wa_id") next[i] = { source: "wa_id", value: "" };
+                                else if (v.startsWith("custom:"))
+                                  next[i] = { source: "custom_field", value: v.slice(7) };
+                                setMapping(next);
+                              }}
+                              className="w-36 rounded border border-wa-border px-2 py-1 text-xs outline-none"
+                            >
+                              <option value="static">Static text</option>
+                              <option value="name">Contact name</option>
+                              <option value="wa_id">Contact phone</option>
+                              {customFieldKeys.map((k) => (
+                                <option key={k} value={`custom:${k}`}>
+                                  Custom: {k}
+                                </option>
+                              ))}
+                            </select>
+                            {m.source === "static" ? (
+                              <input
+                                value={m.value}
+                                onChange={(e) => {
+                                  const next = [...mapping];
+                                  next[i] = { source: "static", value: e.target.value };
+                                  setMapping(next);
+                                }}
+                                placeholder="Value to send"
+                                className="flex-1 rounded border border-wa-border px-2 py-1 text-xs outline-none"
+                              />
+                            ) : (
+                              <div className="flex-1 rounded bg-wa-panel px-2 py-1 text-xs text-wa-textMuted">
+                                {m.source === "name"
+                                  ? "→ contact's name"
+                                  : m.source === "wa_id"
+                                    ? "→ contact's phone"
+                                    : `→ contact's "${m.value}" field`}
+                              </div>
+                            )}
                           </div>
-                        );
-                      })()}
+                        ))}
+                      </div>
                     </div>
                   )}
                   {!selectedTemplate && templateName && templateLanguage && (
