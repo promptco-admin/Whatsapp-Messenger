@@ -125,6 +125,18 @@ export async function POST(req: Request) {
           filename: body.header.filename ? String(body.header.filename) : undefined,
         }
       : null;
+  // FLOW / QUICK_REPLY buttons. Auto-detected client-side from the template.
+  // Without these, Meta rejects the send with #131009.
+  const buttons = Array.isArray(body.buttons)
+    ? body.buttons
+        .filter((b: any) => b && typeof b === "object" && b.sub_type)
+        .map((b: any) => ({
+          index: Number.isFinite(b.index) ? Number(b.index) : 0,
+          sub_type: String(b.sub_type),
+          text: b.text ? String(b.text) : undefined,
+          payload: b.payload ? String(b.payload) : undefined,
+        }))
+    : [];
   const assigneeId = body.assigned_user_id ? Number(body.assigned_user_id) : null;
 
   if (autoSend) {
@@ -147,8 +159,8 @@ export async function POST(req: Request) {
       `INSERT INTO followups
         (contact_id, title, note, due_at, status, auto_send,
          message_kind, message_body, template_name, template_language,
-         variable_mapping, header_json, assigned_user_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         variable_mapping, header_json, buttons_json, assigned_user_id, created_by_user_id)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       contactId,
@@ -162,6 +174,9 @@ export async function POST(req: Request) {
       autoSend ? templateLanguage : null,
       autoSend ? JSON.stringify(mapping) : null,
       autoSend && kind === "template" && header ? JSON.stringify(header) : null,
+      autoSend && kind === "template" && buttons.length > 0
+        ? JSON.stringify(buttons)
+        : null,
       assigneeId,
       user.id,
     );

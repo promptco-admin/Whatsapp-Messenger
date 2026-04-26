@@ -27,6 +27,7 @@ type FollowupRow = {
   template_language: string | null;
   variable_mapping: string | null;
   header_json: string | null;
+  buttons_json: string | null;
 };
 
 type FollowupHeader = {
@@ -34,6 +35,13 @@ type FollowupHeader = {
   media_id?: string;
   link?: string;
   filename?: string;
+};
+
+type FollowupButton = {
+  index: number;
+  sub_type: "flow" | "quick_reply" | "url" | "copy_code";
+  text?: string;
+  payload?: string;
 };
 
 type ContactRow = {
@@ -139,6 +147,50 @@ async function sendFollowupMessage(
             (v) => ({ type: "text", text: v }) as TemplateParameter,
           ),
         });
+      }
+      // Button components for FLOW / QUICK_REPLY / URL / COPY_CODE buttons.
+      // Templates with these button types require a matching `button` component
+      // in the send payload, otherwise Meta returns #131009.
+      const buttons = safeParse<FollowupButton[]>(fu.buttons_json, []);
+      for (const btn of buttons) {
+        if (btn.sub_type === "flow") {
+          components.push({
+            type: "button",
+            sub_type: "flow",
+            index: String(btn.index ?? 0),
+            parameters: [
+              {
+                type: "action",
+                action: {
+                  flow_token: `fu_${fu.id}_${Date.now()}_${Math.random()
+                    .toString(36)
+                    .slice(2, 8)}`,
+                },
+              },
+            ],
+          });
+        } else if (btn.sub_type === "quick_reply") {
+          components.push({
+            type: "button",
+            sub_type: "quick_reply",
+            index: String(btn.index ?? 0),
+            parameters: [{ type: "payload", payload: btn.payload || "" }],
+          });
+        } else if (btn.sub_type === "url") {
+          components.push({
+            type: "button",
+            sub_type: "url",
+            index: String(btn.index ?? 0),
+            parameters: [{ type: "text", text: btn.text || "" }],
+          });
+        } else if (btn.sub_type === "copy_code") {
+          components.push({
+            type: "button",
+            sub_type: "copy_code",
+            index: String(btn.index ?? 0),
+            parameters: [{ type: "text", text: btn.text || "" }],
+          });
+        }
       }
       const { messageId } = await sendTemplate(
         contact.wa_id,

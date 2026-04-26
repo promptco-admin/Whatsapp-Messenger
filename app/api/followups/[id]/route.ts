@@ -84,6 +84,22 @@ export async function PATCH(
     cols.push("variable_mapping = ?");
     vals.push(body.variable_mapping ? JSON.stringify(body.variable_mapping) : null);
   }
+  if (body.buttons !== undefined) {
+    cols.push("buttons_json = ?");
+    if (Array.isArray(body.buttons) && body.buttons.length > 0) {
+      const cleaned = body.buttons
+        .filter((b: any) => b && typeof b === "object" && b.sub_type)
+        .map((b: any) => ({
+          index: Number.isFinite(b.index) ? Number(b.index) : 0,
+          sub_type: String(b.sub_type),
+          text: b.text ? String(b.text) : undefined,
+          payload: b.payload ? String(b.payload) : undefined,
+        }));
+      vals.push(cleaned.length > 0 ? JSON.stringify(cleaned) : null);
+    } else {
+      vals.push(null);
+    }
+  }
   if (body.header !== undefined) {
     cols.push("header_json = ?");
     vals.push(

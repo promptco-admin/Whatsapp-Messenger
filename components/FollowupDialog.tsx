@@ -29,6 +29,30 @@ function headerFormat(t: Template): "TEXT" | HeaderMediaType | null {
   return null;
 }
 
+type DialogButton = {
+  index: number;
+  sub_type: "flow" | "quick_reply";
+  text?: string;
+};
+
+/**
+ * Pull FLOW / QUICK_REPLY buttons out of an approved template so the runner
+ * can attach matching `button` components at send time. URL and PHONE_NUMBER
+ * buttons don't need anything extra unless they have variables, which we
+ * don't currently support in follow-ups.
+ */
+function detectButtons(t: Template): DialogButton[] {
+  const group = t.components.find((c) => c.type === "BUTTONS") as any;
+  const out: DialogButton[] = [];
+  (group?.buttons || []).forEach((b: any, i: number) => {
+    const ty = String(b?.type || "").toUpperCase();
+    if (ty === "FLOW") out.push({ index: i, sub_type: "flow", text: b.text });
+    else if (ty === "QUICK_REPLY")
+      out.push({ index: i, sub_type: "quick_reply", text: b.text });
+  });
+  return out;
+}
+
 export type FollowupDialogContact = {
   id: number;
   name?: string | null;
@@ -334,6 +358,13 @@ export function FollowupDialog({
                   hdrFormat === "document" ? headerFilename || undefined : undefined,
               }
             : null,
+        // Auto-detect FLOW / QUICK_REPLY buttons on the template — Meta requires
+        // a matching `button` component in the send payload or it returns
+        // #131009 ("Parameter value is not valid").
+        buttons:
+          autoSend && kind === "template" && selectedTemplate
+            ? detectButtons(selectedTemplate)
+            : [],
         assigned_user_id: assignee ? Number(assignee) : null,
       };
       if (mode === "create") payload.contact_id = contact?.id;

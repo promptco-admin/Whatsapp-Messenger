@@ -404,6 +404,12 @@ function migrate(d: Database.Database) {
   const followupColNames = new Set(followupCols.map((c) => c.name));
   if (!followupColNames.has("header_json"))
     d.exec("ALTER TABLE followups ADD COLUMN header_json TEXT");
+  // Templates with FLOW or QUICK_REPLY buttons require a `button` component in
+  // the send payload — Meta returns #131009 ("Parameter value is not valid")
+  // if it's missing. We auto-detect buttons from the template at create time
+  // and store them as JSON: [{ index, sub_type, text? }, ...].
+  if (!followupColNames.has("buttons_json"))
+    d.exec("ALTER TABLE followups ADD COLUMN buttons_json TEXT");
 
   // Phase 11: webhook health log. One row per inbound webhook POST. Used by
   // Settings → Webhook status to surface "last received N minutes ago", event
