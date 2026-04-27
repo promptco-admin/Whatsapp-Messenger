@@ -62,8 +62,8 @@ export function QuickReplyManager({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex h-[600px] max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+      <div className="flex h-full max-h-screen w-full max-w-3xl flex-col overflow-hidden bg-white shadow-xl sm:h-[600px] sm:max-h-[92vh] sm:rounded-lg">
         <div className="flex items-center justify-between border-b border-wa-border p-4">
           <div className="text-lg font-medium">Quick replies</div>
           <button onClick={onClose} className="text-xs text-wa-textMuted hover:text-wa-text">

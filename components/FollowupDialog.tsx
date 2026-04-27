@@ -405,8 +405,8 @@ export function FollowupDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-xl rounded-lg bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/40 p-0 sm:items-center sm:p-4">
+      <div className="flex w-full max-w-xl flex-col bg-white p-4 shadow-xl sm:my-auto sm:max-h-[92vh] sm:overflow-y-auto sm:rounded-lg sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="text-lg font-medium">
             {mode === "create" ? "New follow-up" : "Edit follow-up"}

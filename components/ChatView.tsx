@@ -59,10 +59,13 @@ export function ChatView({
   contactId,
   onMessageSent,
   currentUser,
+  onBack,
 }: {
   contactId: number | null;
   onMessageSent: () => void;
   currentUser: CurrentUser | null;
+  /** Mobile-only: tap-to-go-back arrow on the chat header. Hidden on desktop. */
+  onBack?: () => void;
 }) {
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
@@ -286,20 +289,31 @@ export function ChatView({
   }
 
   return (
-    <div className="flex h-full flex-1 flex-row">
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-wa-border bg-wa-panel px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-wa-green to-wa-greenDark font-semibold text-white">
+    <div className="relative flex h-full flex-1 flex-row">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-wa-border bg-wa-panel px-3 py-2 md:px-4 md:py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                aria-label="Back to chat list"
+                className="flex h-9 w-9 flex-none items-center justify-center rounded-full text-wa-text hover:bg-wa-panelDark md:hidden"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M15.7 5.3a1 1 0 0 1 0 1.4L10.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.4 0z" />
+                </svg>
+              </button>
+            )}
+            <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-gradient-to-br from-wa-green to-wa-greenDark text-sm font-semibold text-white md:h-10 md:w-10">
               {display.slice(0, 2).toUpperCase()}
             </div>
-            <div>
-              <div className="text-sm font-medium text-wa-text">{display}</div>
-              <div className="text-[11px] text-wa-textMuted">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-wa-text">{display}</div>
+              <div className="truncate text-[11px] text-wa-textMuted">
                 {phoneDisplay}
                 {waProfileName && (
                   <span
-                    className="ml-2 rounded bg-wa-panelDark px-1.5 py-0.5 text-[10px] text-wa-textMuted"
+                    className="ml-2 hidden rounded bg-wa-panelDark px-1.5 py-0.5 text-[10px] text-wa-textMuted sm:inline"
                     title="Name on the customer's WhatsApp profile"
                   >
                     WA: {waProfileName}
@@ -308,7 +322,7 @@ export function ChatView({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={contact?.assigned_user_id ?? ""}
               onChange={(e) =>
@@ -538,7 +552,7 @@ export function ChatView({
       </div>
 
       {notesOpen && (
-        <aside className="w-80 flex-none border-l border-wa-border bg-wa-panel">
+        <aside className="absolute inset-y-0 right-0 z-30 w-full max-w-sm flex-none border-l border-wa-border bg-wa-panel shadow-lg md:static md:w-80 md:shadow-none">
           <div className="flex items-center justify-between border-b border-wa-border bg-white px-4 py-3">
             <div className="text-sm font-medium">Internal notes</div>
             <button
@@ -594,7 +608,7 @@ export function ChatView({
       )}
 
       {activityOpen && (
-        <aside className="w-80 flex-none border-l border-wa-border bg-wa-panel">
+        <aside className="absolute inset-y-0 right-0 z-30 w-full max-w-sm flex-none border-l border-wa-border bg-wa-panel shadow-lg md:static md:w-80 md:shadow-none">
           <div className="flex items-center justify-between border-b border-wa-border bg-white px-4 py-3">
             <div className="text-sm font-medium">Activity timeline</div>
             <button

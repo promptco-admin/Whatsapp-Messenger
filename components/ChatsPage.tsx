@@ -43,9 +43,19 @@ export function ChatsPage() {
     return () => clearInterval(t);
   }, [refresh]);
 
+  // On mobile (< md / 768px) we show ONE pane at a time:
+  // - no chat selected → list takes the full screen
+  // - chat selected → chat view takes the full screen, list is hidden
+  // On desktop we keep the classic two-pane layout with a fixed-width sidebar.
+  const showListOnMobile = selectedId === null;
+
   return (
     <div className="flex h-full flex-row">
-      <div className="w-[380px] flex-none">
+      <div
+        className={`${
+          showListOnMobile ? "flex" : "hidden"
+        } h-full w-full flex-col md:flex md:w-[380px] md:flex-none md:border-r md:border-wa-border`}
+      >
         <ChatList
           conversations={conversations}
           selectedId={selectedId}
@@ -58,8 +68,17 @@ export function ChatsPage() {
           currentUser={user}
         />
       </div>
-      <div className="flex flex-1">
-        <ChatView contactId={selectedId} onMessageSent={refresh} currentUser={user} />
+      <div
+        className={`${
+          showListOnMobile ? "hidden" : "flex"
+        } h-full w-full flex-1 md:flex`}
+      >
+        <ChatView
+          contactId={selectedId}
+          onMessageSent={refresh}
+          currentUser={user}
+          onBack={() => setSelectedId(null)}
+        />
       </div>
 
       <NewChatDialog

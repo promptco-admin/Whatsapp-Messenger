@@ -136,7 +136,7 @@ export function ContactsPage() {
 
   return (
     <div className="flex h-full w-full flex-col bg-white">
-      <div className="flex items-center justify-between border-b border-wa-border bg-wa-panel px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-wa-border bg-wa-panel px-3 py-3 md:px-6 md:py-4">
         <div>
           <div className="text-lg font-medium text-wa-text">Contacts</div>
           <div className="text-xs text-wa-textMuted">
@@ -162,7 +162,7 @@ export function ContactsPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-56 flex-none overflow-y-auto border-r border-wa-border bg-wa-panel p-3">
+        <aside className="hidden w-56 flex-none overflow-y-auto border-r border-wa-border bg-wa-panel p-3 md:block">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
             Segments
           </div>
@@ -192,7 +192,7 @@ export function ContactsPage() {
           )}
         </aside>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-auto">
           <div className="border-b border-wa-border bg-white px-6 py-3">
             <input
               value={search}

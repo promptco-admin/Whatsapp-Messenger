@@ -47,8 +47,8 @@ export function NewChatDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/40 p-0 sm:items-center sm:p-4">
+      <div className="flex w-full max-w-md flex-col bg-white p-4 shadow-xl sm:my-auto sm:rounded-lg sm:p-6">
         <div className="mb-4 text-lg font-medium">Start a new chat</div>
         <div className="space-y-3">
           <div>

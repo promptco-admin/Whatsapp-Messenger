@@ -224,9 +224,9 @@ export function BroadcastComposer({
     });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex h-[720px] max-h-[94vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
-        <div className="flex w-64 flex-none flex-col border-r border-wa-border bg-wa-panel">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+      <div className="flex h-full max-h-screen w-full max-w-4xl flex-col overflow-hidden bg-white shadow-xl sm:h-[720px] sm:max-h-[94vh] sm:flex-row sm:rounded-lg">
+        <div className="flex h-32 w-full flex-none flex-col border-b border-wa-border bg-wa-panel sm:h-auto sm:w-64 sm:border-b-0 sm:border-r">
           <div className="border-b border-wa-border p-3 text-sm font-medium">Template</div>
           <div className="scroll-thin flex-1 overflow-y-auto">
             {templates.length === 0 && (
