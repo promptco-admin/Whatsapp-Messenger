@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -71,5 +73,15 @@ export async function POST(req: Request) {
       Number(body.priority || 0),
       body.hours_json ? JSON.stringify(body.hours_json) : null,
     );
-  return NextResponse.json({ id: res.lastInsertRowid });
+  const id = Number(res.lastInsertRowid);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "auto_reply.create",
+    entityType: "auto_reply",
+    entityId: id,
+    summary: `Created auto-reply "${name}" (trigger: ${match_type} "${trigger_keyword}")`,
+    metadata: { trigger_keyword, match_type, response_kind },
+    ipAddress: clientIp(req),
+  });
+  return NextResponse.json({ id });
 }

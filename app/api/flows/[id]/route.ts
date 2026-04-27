@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -72,16 +74,42 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   db()
     .prepare(`UPDATE flows SET ${cols.join(", ")} WHERE id = ?`)
     .run(...vals);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "flow.update",
+    entityType: "flow",
+    entityId: id,
+    summary:
+      body.active !== undefined && Object.keys(body).length === 1
+        ? `${body.active ? "Activated" : "Deactivated"} flow`
+        : `Edited flow (${Object.keys(body).join(", ")})`,
+    metadata: { fields: Object.keys(body) },
+    ipAddress: clientIp(req),
+  });
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
   const id = Number(params.id);
+  const snap = db().prepare("SELECT name FROM flows WHERE id = ?").get(id) as
+    | { name: string }
+    | undefined;
   db().prepare("DELETE FROM flows WHERE id = ?").run(id);
+  if (snap) {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "flow.delete",
+      entityType: "flow",
+      entityId: id,
+      summary: `Deleted flow "${snap.name}"`,
+      ipAddress: clientIp(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }

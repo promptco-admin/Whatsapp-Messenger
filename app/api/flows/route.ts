@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -41,5 +42,15 @@ export async function POST(req: Request) {
        VALUES (?, ?, ?, ?, ?)`,
     )
     .run(name, description, trigger_type, trigger_config, user.id);
-  return NextResponse.json({ id: Number(res.lastInsertRowid) });
+  const id = Number(res.lastInsertRowid);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "flow.create",
+    entityType: "flow",
+    entityId: id,
+    summary: `Created flow "${name}" (trigger: ${trigger_type})`,
+    metadata: { trigger_type },
+    ipAddress: clientIp(req),
+  });
+  return NextResponse.json({ id });
 }

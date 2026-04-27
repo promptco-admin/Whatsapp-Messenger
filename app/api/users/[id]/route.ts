@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { hashPassword, requireAdmin, requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   values.push(targetId);
   db().prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+  // Don't audit a self-update of phone_masking — it's noise. Log everything else.
+  const interesting = Object.keys(body).filter(
+    (k) => !(isSelf && k === "phone_masking" && Object.keys(body).length === 1),
+  );
+  if (interesting.length > 0) {
+    logActivity({
+      user: { id: currentUser.id, name: currentUser.name, role: currentUser.role },
+      action: "user.update",
+      entityType: "user",
+      entityId: targetId,
+      summary: isSelf
+        ? `Updated own profile (${interesting.join(", ")})`
+        : `Updated user #${targetId} (${interesting.join(", ")})`,
+      metadata: { fields: interesting, target_user_id: targetId },
+      ipAddress: clientIp(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }
 
@@ -73,9 +91,23 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   if (currentUser.id === targetId) {
     return NextResponse.json({ error: "Cannot delete yourself" }, { status: 400 });
   }
+  const snap = db()
+    .prepare("SELECT name, email FROM users WHERE id = ?")
+    .get(targetId) as { name: string; email: string } | undefined;
   // Soft delete: deactivate rather than hard delete to preserve audit trail
   db().prepare("UPDATE users SET active = 0 WHERE id = ?").run(targetId);
   // Invalidate their sessions
   db().prepare("DELETE FROM sessions WHERE user_id = ?").run(targetId);
+  if (snap) {
+    logActivity({
+      user: { id: currentUser.id, name: currentUser.name, role: currentUser.role },
+      action: "user.delete",
+      entityType: "user",
+      entityId: targetId,
+      summary: `Deactivated user "${snap.name}" (${snap.email})`,
+      metadata: { target_user_id: targetId, email: snap.email },
+      ipAddress: clientIp(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }

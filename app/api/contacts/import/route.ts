@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, upsertContact } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -8,8 +9,9 @@ export const maxDuration = 120;
 type ImportRow = Record<string, string>;
 
 export async function POST(req: Request) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -71,6 +73,22 @@ export async function POST(req: Request) {
     }
   }
 
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "contact.import",
+    summary: `CSV import: +${created} new, ${updated} updated, ${skipped} skipped${
+      errors.length ? `, ${errors.length} errors` : ""
+    }`,
+    metadata: {
+      created,
+      updated,
+      skipped,
+      error_count: errors.length,
+      tag: defaultTag,
+      total_rows: rows.length,
+    },
+    ipAddress: clientIp(req),
+  });
   return NextResponse.json({ created, updated, skipped, errors });
 }
 

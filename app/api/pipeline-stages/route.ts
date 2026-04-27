@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -48,5 +50,14 @@ export async function POST(req: Request) {
       body.is_lost ? 1 : 0,
       body.auto_followup_days != null ? Number(body.auto_followup_days) : null,
     );
-  return NextResponse.json({ id: Number(res.lastInsertRowid) });
+  const id = Number(res.lastInsertRowid);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "pipeline_stage.create",
+    entityType: "pipeline_stage",
+    entityId: id,
+    summary: `Created pipeline stage "${name}"`,
+    ipAddress: clientIp(req),
+  });
+  return NextResponse.json({ id });
 }

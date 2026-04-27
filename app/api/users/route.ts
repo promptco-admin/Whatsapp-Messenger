@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createUser, hashPassword, requireAdmin, requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,9 @@ export async function GET() {
 
 /** Only admins can create users. */
 export async function POST(req: Request) {
+  let admin;
   try {
-    await requireAdmin();
+    admin = await requireAdmin();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -39,6 +41,15 @@ export async function POST(req: Request) {
   try {
     const hash = await hashPassword(password);
     const id = createUser({ email, password_hash: hash, name, role: role || "agent" });
+    logActivity({
+      user: { id: admin.id, name: admin.name, role: admin.role },
+      action: "user.create",
+      entityType: "user",
+      entityId: id,
+      summary: `Created ${role || "agent"} "${name}" (${email})`,
+      metadata: { email, role: role || "agent" },
+      ipAddress: clientIp(req),
+    });
     return NextResponse.json({ id });
   } catch (e: any) {
     if (String(e.message).includes("UNIQUE")) {

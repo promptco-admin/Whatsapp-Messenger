@@ -12,7 +12,9 @@ import { FollowupsPage } from "@/components/FollowupsPage";
 import { PipelinePage } from "@/components/PipelinePage";
 import { AnalyticsPage } from "@/components/AnalyticsPage";
 import { SettingsPage } from "@/components/SettingsPage";
+import { LogsPage } from "@/components/LogsPage";
 import { PromptLogo } from "@/components/PromptLogo";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type Tab =
   | "chats"
@@ -24,11 +26,14 @@ type Tab =
   | "followups"
   | "pipeline"
   | "analytics"
+  | "logs"
   | "settings";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("chats");
   const [followupBadge, setFollowupBadge] = useState(0);
+  const me = useCurrentUser();
+  const isAdmin = me.user?.role === "admin";
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +119,13 @@ export default function Home() {
             <path d="M4 20h3v-8H4v8zm6.5 0h3V4h-3v16zM17 20h3v-12h-3v12z" />
           </svg>
         </NavButton>
+        {isAdmin && (
+          <NavButton label="Logs" active={tab === "logs"} onClick={() => setTab("logs")}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM7 13h10v2H7v-2zm0 4h7v2H7v-2zm0-8h5v2H7V9z" />
+            </svg>
+          </NavButton>
+        )}
         <div className="mt-auto" />
         <NavButton label="Settings" active={tab === "settings"} onClick={() => setTab("settings")}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
@@ -132,6 +144,7 @@ export default function Home() {
         {tab === "auto-replies" && <AutoRepliesPage />}
         {tab === "flows" && <FlowsPage />}
         {tab === "analytics" && <AnalyticsPage />}
+        {tab === "logs" && <LogsPage />}
         {tab === "settings" && <SettingsPage />}
       </div>
     </div>

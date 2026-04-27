@@ -4,6 +4,7 @@ import { db, upsertContact, touchContact } from "@/lib/db";
 import { runKeywordReplies } from "@/lib/auto-reply-runner";
 import { handleInboundForFlows } from "@/lib/flow-runner";
 import { runAwayMessage } from "@/lib/away-runner";
+import { logError as auditLogError } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,10 @@ export async function POST(req: Request) {
           )
           .run("invalid_signature", "X-Hub-Signature-256 mismatch");
       } catch {}
+      auditLogError({
+        source: "webhook.signature",
+        message: "X-Hub-Signature-256 mismatch — Meta verification failed",
+      });
       return new NextResponse("invalid signature", { status: 401 });
     }
   }
@@ -72,6 +77,11 @@ export async function POST(req: Request) {
         )
         .run("invalid_json", signatureOk, "JSON parse error");
     } catch {}
+    auditLogError({
+      source: "webhook.parse",
+      message: "Invalid JSON in webhook payload",
+      context: { length: raw.length },
+    });
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
 
@@ -398,6 +408,11 @@ export async function POST(req: Request) {
   } catch (e: any) {
     console.error("webhook error", e);
     logError = e?.message || String(e);
+    auditLogError({
+      source: "webhook.handler",
+      message: e?.message || String(e),
+      context: { messageCount, statusCount },
+    });
   }
 
   // Persist health-log row + auto-prune to last 1000.

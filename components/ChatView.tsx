@@ -28,6 +28,16 @@ type Note = {
   user_id: number;
 };
 
+type ActivityEvent = {
+  id: number;
+  user_id: number | null;
+  user_name: string | null;
+  user_role: string | null;
+  action: string;
+  summary: string | null;
+  created_at: string;
+};
+
 function withinWindow(lastInboundAt: string | null): boolean {
   if (!lastInboundAt) return false;
   const s = lastInboundAt.includes("T") ? lastInboundAt : lastInboundAt.replace(" ", "T") + "Z";
@@ -67,6 +77,8 @@ export function ChatView({
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [followupOpen, setFollowupOpen] = useState(false);
   const [newNote, setNewNote] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -103,10 +115,26 @@ export function ChatView({
     setNotes(j.notes || []);
   }
 
+  async function loadActivity() {
+    if (!contactId) return;
+    const res = await fetch(
+      `/api/logs/activity?contact_id=${contactId}&limit=200`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return;
+    const j = await res.json();
+    setActivity(j.activity || []);
+  }
+
   useEffect(() => {
     load();
     loadNotes();
+    if (activityOpen) loadActivity();
   }, [contactId]);
+
+  useEffect(() => {
+    if (activityOpen) loadActivity();
+  }, [activityOpen, contactId]);
 
   useEffect(() => {
     loadQuickReplies();
@@ -298,7 +326,10 @@ export function ChatView({
               ))}
             </select>
             <button
-              onClick={() => setNotesOpen((o) => !o)}
+              onClick={() => {
+                setNotesOpen((o) => !o);
+                if (activityOpen) setActivityOpen(false);
+              }}
               className={`rounded border px-2 py-1 text-xs ${
                 notesOpen
                   ? "border-wa-greenDark bg-wa-greenDark text-white"
@@ -307,6 +338,20 @@ export function ChatView({
               title="Internal notes"
             >
               Notes{notes.length > 0 ? ` (${notes.length})` : ""}
+            </button>
+            <button
+              onClick={() => {
+                setActivityOpen((o) => !o);
+                if (notesOpen) setNotesOpen(false);
+              }}
+              className={`rounded border px-2 py-1 text-xs ${
+                activityOpen
+                  ? "border-wa-greenDark bg-wa-greenDark text-white"
+                  : "border-wa-border bg-white"
+              }`}
+              title="Activity timeline for this contact"
+            >
+              Activity
             </button>
             <button
               onClick={() => setFollowupOpen(true)}
@@ -544,6 +589,53 @@ export function ChatView({
                 <div className="whitespace-pre-wrap text-xs text-wa-text">{n.body}</div>
               </div>
             ))}
+          </div>
+        </aside>
+      )}
+
+      {activityOpen && (
+        <aside className="w-80 flex-none border-l border-wa-border bg-wa-panel">
+          <div className="flex items-center justify-between border-b border-wa-border bg-white px-4 py-3">
+            <div className="text-sm font-medium">Activity timeline</div>
+            <button
+              onClick={() => setActivityOpen(false)}
+              className="text-xs text-wa-textMuted hover:text-wa-text"
+            >
+              Close
+            </button>
+          </div>
+          <div className="scroll-thin h-[calc(100%-49px)] overflow-y-auto p-3">
+            {activity.length === 0 ? (
+              <div className="py-6 text-center text-xs text-wa-textMuted">
+                No activity logged for this contact yet.
+              </div>
+            ) : (
+              <ol className="relative ml-3 border-l border-wa-border">
+                {activity.map((a) => (
+                  <li key={a.id} className="mb-3 ml-4">
+                    <div className="absolute -left-1.5 mt-1 h-3 w-3 rounded-full border border-wa-greenDark bg-white" />
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="mb-0.5 flex items-center justify-between text-[10px] text-wa-textMuted">
+                        <span className="font-mono">{a.action}</span>
+                        <span>{timeAgo(a.created_at)}</span>
+                      </div>
+                      <div className="text-xs text-wa-text">
+                        {a.summary || <span className="italic">(no summary)</span>}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-wa-textMuted">
+                        {a.user_name ? (
+                          <>
+                            by <b>{a.user_name}</b>
+                          </>
+                        ) : (
+                          <span className="rounded bg-wa-panelDark px-1 text-[9px]">system</span>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
         </aside>
       )}

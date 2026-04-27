@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -63,17 +65,43 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   values.push(id);
 
   database.prepare(`UPDATE auto_replies SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "auto_reply.update",
+    entityType: "auto_reply",
+    entityId: id,
+    summary:
+      body.active !== undefined && Object.keys(body).length === 1
+        ? `${body.active ? "Activated" : "Deactivated"} auto-reply`
+        : `Edited auto-reply (${Object.keys(body).join(", ")})`,
+    metadata: { fields: Object.keys(body) },
+    ipAddress: clientIp(req),
+  });
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
   const id = Number(params.id);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  const snap = db().prepare("SELECT name FROM auto_replies WHERE id = ?").get(id) as
+    | { name: string }
+    | undefined;
   db().prepare("DELETE FROM auto_replies WHERE id = ?").run(id);
+  if (snap) {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "auto_reply.delete",
+      entityType: "auto_reply",
+      entityId: id,
+      summary: `Deleted auto-reply "${snap.name}"`,
+      ipAddress: clientIp(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }

@@ -12,6 +12,7 @@
 import { db, touchContact } from "./db";
 import { sendText, sendTemplate, type TemplateSendComponent, type TemplateParameter } from "./whatsapp";
 import type { VariableMapping } from "./types";
+import { logActivity, logError } from "./audit";
 
 type FollowupRow = {
   id: number;
@@ -247,6 +248,12 @@ export async function sendFollowupNow(
         "UPDATE followups SET last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       )
       .run(err, followupId);
+    logError({
+      source: "followup.send",
+      message: err,
+      context: { followup_id: followupId, via, template: fu.template_name },
+      contactId: contact.id,
+    });
     return { ok: false, error: err };
   }
   db()
@@ -257,6 +264,19 @@ export async function sendFollowupNow(
         WHERE id = ?`,
     )
     .run(via, followupId);
+  // Audit a system-driven send so it appears in per-conversation timelines.
+  logActivity({
+    user: null,
+    action: via === "auto" ? "followup.send_auto" : "followup.send_now",
+    entityType: "followup",
+    entityId: followupId,
+    contactId: contact.id,
+    summary:
+      via === "auto"
+        ? `Auto-fired follow-up "${fu.title}"`
+        : `Sent follow-up "${fu.title}" now`,
+    metadata: { template: fu.template_name, kind: fu.message_kind },
+  });
   return { ok: true };
 }
 
@@ -293,6 +313,11 @@ export async function runFollowupTick(): Promise<void> {
             WHERE id = ?`,
         )
         .run(e?.message || "tick error", row.id);
+      logError({
+        source: "followup.tick",
+        message: e?.message || String(e),
+        context: { followup_id: row.id },
+      });
     }
   }
 }

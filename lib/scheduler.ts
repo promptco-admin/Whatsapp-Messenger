@@ -3,9 +3,12 @@ import { runBroadcast } from "./broadcast-runner";
 import { runSequenceTick } from "./sequence-runner";
 import { runFlowTick } from "./flow-runner";
 import { runFollowupTick } from "./followup-runner";
+import { pruneLogs, LOG_RETENTION_DAYS } from "./audit";
 
 let started = false;
 const TICK_MS = 60_000; // 60s
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000; // 1h
+let lastPruneAt = 0;
 
 export function startScheduler() {
   if (started) return;
@@ -29,6 +32,16 @@ async function tick() {
   await runSequenceTick();
   await runFlowTick();
   await runFollowupTick();
+  // Prune logs at most once per hour. Cheap when nothing's expired.
+  if (Date.now() - lastPruneAt > PRUNE_INTERVAL_MS) {
+    lastPruneAt = Date.now();
+    const r = pruneLogs(LOG_RETENTION_DAYS);
+    if (r.activity > 0 || r.errors > 0) {
+      console.log(
+        `[scheduler] pruned logs: ${r.activity} activity, ${r.errors} error rows older than ${LOG_RETENTION_DAYS}d`,
+      );
+    }
+  }
 }
 
 async function runDueBroadcasts() {

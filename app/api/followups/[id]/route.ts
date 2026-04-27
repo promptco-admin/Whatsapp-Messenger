@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 import { sendFollowupNow } from "@/lib/followup-runner";
 
 export const dynamic = "force-dynamic";
@@ -30,9 +31,24 @@ export async function PATCH(
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
   const body = await req.json();
 
+  // Look up contact_id once for any audit row that ties to this follow-up.
+  const fuRow = db()
+    .prepare("SELECT contact_id, title FROM followups WHERE id = ?")
+    .get(id) as { contact_id: number; title: string } | undefined;
+  const contactId = fuRow?.contact_id ?? null;
+
   if (body.action === "send_now") {
     const r = await sendFollowupNow(id, "manual");
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "followup.send_now",
+      entityType: "followup",
+      entityId: id,
+      contactId,
+      summary: `Manually fired follow-up "${fuRow?.title || ""}"`,
+      ipAddress: clientIp(req),
+    });
     return NextResponse.json({ ok: true });
   }
 
@@ -44,6 +60,16 @@ export async function PATCH(
         "UPDATE followups SET due_at = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       )
       .run(newDue, id);
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "followup.snooze",
+      entityType: "followup",
+      entityId: id,
+      contactId,
+      summary: `Snoozed follow-up "${fuRow?.title || ""}" by ${minutes} min`,
+      metadata: { minutes, new_due_at: newDue },
+      ipAddress: clientIp(req),
+    });
     return NextResponse.json({ ok: true, due_at: newDue });
   }
 
@@ -128,23 +154,69 @@ export async function PATCH(
     .prepare(`UPDATE followups SET ${cols.join(", ")} WHERE id = ?`)
     .run(...vals);
 
-  // Suppress unused-user lint while keeping the auth check above.
-  void user;
+  // Status transitions get their own action so they're easy to filter.
+  if (body.status === "done") {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "followup.complete",
+      entityType: "followup",
+      entityId: id,
+      contactId,
+      summary: `Marked follow-up "${fuRow?.title || ""}" as done`,
+      ipAddress: clientIp(req),
+    });
+  } else if (body.status === "cancelled") {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "followup.cancel",
+      entityType: "followup",
+      entityId: id,
+      contactId,
+      summary: `Cancelled follow-up "${fuRow?.title || ""}"`,
+      ipAddress: clientIp(req),
+    });
+  } else {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "followup.update",
+      entityType: "followup",
+      entityId: id,
+      contactId,
+      summary: `Edited follow-up "${fuRow?.title || ""}"`,
+      metadata: { fields: Object.keys(body) },
+      ipAddress: clientIp(req),
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } },
 ) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
   const id = Number(params.id);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  const snap = db()
+    .prepare("SELECT title, contact_id FROM followups WHERE id = ?")
+    .get(id) as { title: string; contact_id: number } | undefined;
   db().prepare("DELETE FROM followups WHERE id = ?").run(id);
+  if (snap) {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "followup.delete",
+      entityType: "followup",
+      entityId: id,
+      contactId: snap.contact_id,
+      summary: `Deleted follow-up "${snap.title}"`,
+      ipAddress: clientIp(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }

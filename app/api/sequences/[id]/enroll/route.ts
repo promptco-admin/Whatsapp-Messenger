@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { enrollContact } from "@/lib/sequence-runner";
-import { requireUser } from "@/lib/auth";
+import { requireUser, type User } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
-async function gate() {
+async function gate(): Promise<{ user: User } | { error: NextResponse }> {
   try {
-    await requireUser();
-    return null;
+    const user = await requireUser();
+    return { user };
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: e.status || 401 });
+    return { error: NextResponse.json({ error: e.message }, { status: e.status || 401 }) };
   }
 }
 
@@ -18,7 +19,8 @@ async function gate() {
 // Accepts { contact_ids: number[] } OR { segment_tag: string }.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const g = await gate();
-  if (g) return g;
+  if ("error" in g) return g.error;
+  const { user } = g;
   const seqId = Number(params.id);
   if (!seqId) return NextResponse.json({ error: "invalid id" }, { status: 400 });
   const body = await req.json().catch(() => ({}));
@@ -60,13 +62,29 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
   }
 
+  const seqName = (db().prepare("SELECT name FROM sequences WHERE id = ?").get(seqId) as
+    | { name: string }
+    | undefined)?.name;
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "sequence.enroll",
+    entityType: "sequence",
+    entityId: seqId,
+    summary: `Enrolled ${enrolled} contact${enrolled === 1 ? "" : "s"} in sequence "${seqName || ""}"${
+      skipped ? ` (${skipped} skipped)` : ""
+    }`,
+    metadata: { enrolled, skipped, segment_tag: body.segment_tag || null },
+    ipAddress: clientIp(req),
+  });
+
   return NextResponse.json({ enrolled, skipped, errors });
 }
 
 // Pause/resume/cancel an enrollment.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const g = await gate();
-  if (g) return g;
+  if ("error" in g) return g.error;
+  const { user } = g;
   const seqId = Number(params.id);
   if (!seqId) return NextResponse.json({ error: "invalid id" }, { status: 400 });
   const { enrollment_id, status } = await req.json();
@@ -78,5 +96,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       "UPDATE sequence_enrollments SET status = ? WHERE id = ? AND sequence_id = ?",
     )
     .run(status, Number(enrollment_id), seqId);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "sequence.enrollment_update",
+    entityType: "sequence",
+    entityId: seqId,
+    summary: `Set enrollment #${enrollment_id} to ${status}`,
+    metadata: { enrollment_id, status },
+    ipAddress: clientIp(req),
+  });
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, upsertContact } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
@@ -70,6 +72,16 @@ export async function POST(req: Request) {
       id,
     );
   }
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "contact.create",
+    entityType: "contact",
+    entityId: id,
+    contactId: id,
+    summary: `Created contact ${name?.trim() || `+${normalized}`}`,
+    metadata: { wa_id: normalized, name: name || null },
+    ipAddress: clientIp(req),
+  });
   return NextResponse.json({ id, wa_id: normalized });
 }
 

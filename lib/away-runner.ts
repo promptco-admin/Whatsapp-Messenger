@@ -18,6 +18,7 @@
 import { db, getSetting, touchContact } from "./db";
 import { sendText } from "./whatsapp";
 import { withinHoursConfig, type HoursConfig } from "./hours";
+import { logError } from "./audit";
 
 export type AwayMessageConfig = {
   enabled?: boolean;
@@ -78,6 +79,12 @@ export async function runAwayMessage(
     return { fired: true };
   } catch (e: any) {
     console.error("[away] send failed", e);
+    logError({
+      source: "away.send",
+      message: e?.message || String(e),
+      context: { contact_id: contactId },
+      contactId,
+    });
     return { fired: false, reason: e?.message || "send failed" };
   }
 }

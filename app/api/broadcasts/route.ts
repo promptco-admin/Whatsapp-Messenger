@@ -4,6 +4,7 @@ import { runBroadcast, type BroadcastHeader } from "@/lib/broadcast-runner";
 import type { VariableMapping } from "@/lib/types";
 import { requireUser } from "@/lib/auth";
 import { resolveSegment, type SegmentCondition } from "@/lib/segments";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +110,24 @@ export async function POST(req: Request) {
     for (const id of ids) insertR.run(broadcastId, id);
   });
   tx(resolvedIds);
+
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "broadcast.create",
+    entityType: "broadcast",
+    entityId: broadcastId,
+    summary: `Created broadcast "${name}" → ${resolvedIds.length} recipients via ${template_name}${
+      scheduled_for ? ` (scheduled ${scheduled_for})` : " (sending now)"
+    }`,
+    metadata: {
+      template_name,
+      language,
+      total: resolvedIds.length,
+      scheduled_for,
+      segment_tag,
+    },
+    ipAddress: clientIp(req),
+  });
 
   if (!scheduled_for) {
     runBroadcast(broadcastId).catch((e) => console.error("broadcast error", e));

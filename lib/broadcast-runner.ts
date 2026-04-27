@@ -1,6 +1,7 @@
 import { db, touchContact } from "./db";
 import { sendTemplate, type TemplateSendComponent, type TemplateParameter } from "./whatsapp";
 import type { VariableMapping } from "./types";
+import { logActivity, logError } from "./audit";
 
 export type BroadcastHeader = {
   type: "image" | "video" | "document";
@@ -185,6 +186,16 @@ export async function runBroadcast(broadcastId: number) {
         .prepare("UPDATE broadcast_recipients SET status = 'failed', error = ? WHERE id = ?")
         .run(msg, r.recipient_id);
       database.prepare("UPDATE broadcasts SET failed = failed + 1 WHERE id = ?").run(broadcastId);
+      logError({
+        source: "broadcast.send",
+        message: msg,
+        context: {
+          broadcast_id: broadcastId,
+          recipient_id: r.recipient_id,
+          template: broadcast.template_name,
+        },
+        contactId: r.contact_id,
+      });
     }
 
     await new Promise((res) => setTimeout(res, SEND_DELAY_MS));
@@ -193,4 +204,22 @@ export async function runBroadcast(broadcastId: number) {
   database
     .prepare("UPDATE broadcasts SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?")
     .run(broadcastId);
+  // Final summary so admins see the broadcast finish in the activity log.
+  const totals = database
+    .prepare("SELECT total, sent, delivered, failed, name FROM broadcasts WHERE id = ?")
+    .get(broadcastId) as
+    | { total: number; sent: number; delivered: number; failed: number; name: string }
+    | undefined;
+  if (totals) {
+    logActivity({
+      user: null,
+      action: "broadcast.complete",
+      entityType: "broadcast",
+      entityId: broadcastId,
+      summary: `Broadcast "${totals.name}" complete: ${totals.sent}/${totals.total} sent${
+        totals.failed ? `, ${totals.failed} failed` : ""
+      }`,
+      metadata: totals,
+    });
+  }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 import type { VariableMapping } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -181,5 +182,24 @@ export async function POST(req: Request) {
       user.id,
     );
 
-  return NextResponse.json({ id: Number(res.lastInsertRowid) });
+  const fuId = Number(res.lastInsertRowid);
+  logActivity({
+    user: { id: user.id, name: user.name, role: user.role },
+    action: "followup.create",
+    entityType: "followup",
+    entityId: fuId,
+    contactId,
+    summary: `Created follow-up "${title}" for ${dueAt.toISOString()}${
+      autoSend ? ` (auto-send ${kind})` : ""
+    }`,
+    metadata: {
+      title,
+      due_at: dueAt.toISOString(),
+      auto_send: !!autoSend,
+      kind: autoSend ? kind : null,
+      template_name: templateName,
+    },
+    ipAddress: clientIp(req),
+  });
+  return NextResponse.json({ id: fuId });
 }

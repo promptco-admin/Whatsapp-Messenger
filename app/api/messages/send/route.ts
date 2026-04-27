@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db, upsertContact, touchContact } from "@/lib/db";
 import { sendText, sendTemplate, type TemplateSendComponent } from "@/lib/whatsapp";
 import { requireUser } from "@/lib/auth";
+import { logActivity, logError, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,16 @@ export async function POST(req: Request) {
         )
         .run(messageId, contactId, text, user.id);
       touchContact(contactId);
+      logActivity({
+        user: { id: user.id, name: user.name, role: user.role },
+        action: "message.send",
+        entityType: "message",
+        entityId: Number(res.lastInsertRowid),
+        contactId,
+        summary: `Sent text to +${normalized}: "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`,
+        metadata: { kind: "text", length: text.length },
+        ipAddress: clientIp(req),
+      });
       return NextResponse.json({ id: res.lastInsertRowid, messageId });
     }
 
@@ -139,6 +150,16 @@ export async function POST(req: Request) {
           header?.filename || null,
         );
       touchContact(contactId);
+      logActivity({
+        user: { id: user.id, name: user.name, role: user.role },
+        action: "message.send",
+        entityType: "message",
+        entityId: Number(res.lastInsertRowid),
+        contactId,
+        summary: `Sent template "${name}" to +${normalized}`,
+        metadata: { kind: "template", template: name, language, variables },
+        ipAddress: clientIp(req),
+      });
       return NextResponse.json({ id: res.lastInsertRowid, messageId });
     }
 
@@ -158,6 +179,12 @@ export async function POST(req: Request) {
         err,
         user.id,
       );
+    logError({
+      source: "messages.send",
+      message: err,
+      context: { kind, wa_id: normalized, template: body.template_name || null },
+      contactId,
+    });
     return NextResponse.json({ error: err }, { status: 500 });
   }
 }

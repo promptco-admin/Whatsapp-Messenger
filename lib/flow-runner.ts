@@ -11,6 +11,7 @@
  */
 import { db, touchContact } from "./db";
 import { sendText, sendTemplate, type TemplateSendComponent } from "./whatsapp";
+import { logError } from "./audit";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -566,10 +567,17 @@ export async function advanceRun(runId: number, maxSteps = 50): Promise<void> {
       }
       currentId = result.nextNodeId;
     } catch (e: any) {
+      const msg = e?.message || String(e);
       updateRun(runId, {
         status: "failed",
-        last_error: e?.message || String(e),
+        last_error: msg,
         completed_at: new Date().toISOString(),
+      });
+      logError({
+        source: "flow.advance",
+        message: msg,
+        context: { run_id: runId, node_id: currentId },
+        contactId: contact.id,
       });
       return;
     }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { logActivity, clientIp } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,57 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   values.push(id);
   db().prepare(`UPDATE contacts SET ${updates.join(", ")} WHERE id = ?`).run(...values);
 
+  // Pipeline-stage moves get their own action so they show up in per-conversation
+  // timelines as a distinct event, not buried inside a generic "contact.update".
+  if (newStageId !== undefined) {
+    const stageRow = newStageId
+      ? (db().prepare("SELECT name FROM pipeline_stages WHERE id = ?").get(newStageId) as
+          | { name: string }
+          | undefined)
+      : null;
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "contact.stage_change",
+      entityType: "contact",
+      entityId: id,
+      contactId: id,
+      summary: stageRow
+        ? `Moved contact to stage "${stageRow.name}"`
+        : `Cleared pipeline stage`,
+      metadata: { stage_id: newStageId, stage_name: stageRow?.name || null },
+      ipAddress: clientIp(req),
+    });
+  }
+  if (body.unsubscribed !== undefined) {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: body.unsubscribed ? "contact.unsubscribe" : "contact.resubscribe",
+      entityType: "contact",
+      entityId: id,
+      contactId: id,
+      summary: body.unsubscribed
+        ? `Marked contact as opted-out`
+        : `Re-subscribed contact`,
+      ipAddress: clientIp(req),
+    });
+  }
+  // Generic update event covers any field changes that didn't get their own log.
+  const fields = Object.keys(body).filter(
+    (k) => !["unsubscribed", "pipeline_stage_id"].includes(k),
+  );
+  if (fields.length > 0) {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "contact.update",
+      entityType: "contact",
+      entityId: id,
+      contactId: id,
+      summary: `Updated contact (${fields.join(", ")})`,
+      metadata: { fields },
+      ipAddress: clientIp(req),
+    });
+  }
+
   // After the update, if we moved into a stage with auto_followup_days, schedule a follow-up.
   if (newStageId) {
     const stage = db()
@@ -106,14 +158,31 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  let user;
   try {
-    await requireUser();
+    user = await requireUser();
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status || 401 });
   }
   const id = Number(params.id);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  // Snapshot the contact name BEFORE deleting so the audit row has something
+  // human-readable (the FK is set to NULL on delete cascade).
+  const snap = db()
+    .prepare("SELECT name, wa_id FROM contacts WHERE id = ?")
+    .get(id) as { name: string | null; wa_id: string } | undefined;
   db().prepare("DELETE FROM contacts WHERE id = ?").run(id);
+  if (snap) {
+    logActivity({
+      user: { id: user.id, name: user.name, role: user.role },
+      action: "contact.delete",
+      entityType: "contact",
+      entityId: id,
+      summary: `Deleted contact ${snap.name || `+${snap.wa_id}`}`,
+      metadata: { wa_id: snap.wa_id, name: snap.name },
+      ipAddress: clientIp(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }

@@ -2,6 +2,7 @@ import { db, touchContact } from "./db";
 import { sendText, sendTemplate, type TemplateSendComponent, type TemplateParameter } from "./whatsapp";
 import type { VariableMapping } from "./types";
 import { withinHoursConfig } from "./hours";
+import { logError } from "./audit";
 
 type AutoReplyRule = {
   id: number;
@@ -174,6 +175,12 @@ export async function runKeywordReplies(
     } catch (e: any) {
       const msg = e?.message || String(e);
       console.error(`[auto-reply] rule #${rule.id} failed:`, msg);
+      logError({
+        source: "auto_reply.send",
+        message: msg,
+        context: { rule_id: rule.id },
+        contactId,
+      });
       // Don't log a fire if the send failed — let it retry on the next inbound.
       return { fired: null, ruleId: rule.id, error: msg };
     }

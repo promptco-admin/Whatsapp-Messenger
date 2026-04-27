@@ -411,6 +411,42 @@ function migrate(d: Database.Database) {
   if (!followupColNames.has("buttons_json"))
     d.exec("ALTER TABLE followups ADD COLUMN buttons_json TEXT");
 
+  // Phase 11: audit + error logs. Two separate tables so one can grow large
+  // (per-recipient broadcast errors) without slowing the activity feed. Both
+  // are auto-pruned by the scheduler at the configured retention.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      user_name TEXT,
+      user_role TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id INTEGER,
+      contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+      summary TEXT,
+      metadata_json TEXT,
+      ip_address TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_activity_log_contact ON activity_log(contact_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_activity_log_action ON activity_log(action, created_at);
+
+    CREATE TABLE IF NOT EXISTS error_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      message TEXT NOT NULL,
+      context_json TEXT,
+      contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_error_log_created ON error_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_error_log_source ON error_log(source, created_at);
+    CREATE INDEX IF NOT EXISTS idx_error_log_contact ON error_log(contact_id, created_at);
+  `);
+
   // Phase 11: webhook health log. One row per inbound webhook POST. Used by
   // Settings → Webhook status to surface "last received N minutes ago", event
   // counts, and signature-verification health. Auto-pruned to last 1000 rows

@@ -1,6 +1,7 @@
 import { db, touchContact } from "./db";
 import { sendTemplate, type TemplateSendComponent, type TemplateParameter } from "./whatsapp";
 import type { VariableMapping } from "./types";
+import { logError } from "./audit";
 
 type EnrollmentRow = {
   enrollment_id: number;
@@ -198,6 +199,16 @@ export async function runSequenceTick() {
           "UPDATE sequence_enrollments SET status = 'failed', last_error = ? WHERE id = ?",
         )
         .run(msg, e.enrollment_id);
+      logError({
+        source: "sequence.send",
+        message: msg,
+        context: {
+          enrollment_id: e.enrollment_id,
+          sequence_id: e.sequence_id,
+          step: e.current_step,
+        },
+        contactId: e.contact_id,
+      });
     }
 
     // Small delay between sends (rate-limit friendly).
