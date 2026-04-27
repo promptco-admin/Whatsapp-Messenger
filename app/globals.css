@@ -3,7 +3,20 @@
 @tailwind utilities;
 
 html, body, #__next { height: 100%; }
-body { background: #e9edef; color: #111b21; }
+body {
+  background: #e9edef;
+  color: #111b21;
+  /* PWA: respect iPhone notches + Android navigation bars when running in
+     standalone mode. viewport-fit=cover paints behind those areas, so we
+     add safe-area padding here to keep nav chrome from being chopped.
+     Falls back to 0 on browsers that don't support env(). */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  /* Block iOS overscroll/bounce so the app feels native, not webby. */
+  overscroll-behavior-y: none;
+}
 
 .chat-bg {
   background-color: #efeae2;
