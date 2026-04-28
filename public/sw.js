@@ -13,7 +13,7 @@
  *
  * Bump CACHE_VERSION when you change the SW so old caches get cleaned up.
  */
-const CACHE_VERSION = "prompt-wa-v1";
+const CACHE_VERSION = "prompt-wa-v2";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 
 const SHELL_URLS = [

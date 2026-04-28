@@ -53,16 +53,21 @@ export function ContactsPage() {
   const [sort, setSort] = useState<SortKey>("name_asc");
   const [stageFilter, setStageFilter] = useState<string>("any"); // "any" | "none" | "<id>"
   const [showOptedOut, setShowOptedOut] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   async function load() {
     const params = new URLSearchParams();
     if (selectedTag) params.set("tag", selectedTag);
     if (search) params.set("search", search);
     const res = await fetch(`/api/contacts?${params}`, { cache: "no-store" });
-    if (!res.ok) return;
+    if (!res.ok) {
+      setLoaded(true);
+      return;
+    }
     const j = await res.json();
     setContacts(j.contacts || []);
     setAllTags(j.tags || []);
+    setLoaded(true);
   }
 
   async function loadStages() {
@@ -255,7 +260,7 @@ export function ContactsPage() {
             )}
           </div>
 
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="sticky top-0 bg-white">
               <tr className="text-left text-xs text-wa-textMuted">
                 <th className="border-b border-wa-border px-6 py-2">Name</th>
@@ -267,7 +272,14 @@ export function ContactsPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleContacts.length === 0 && (
+              {!loaded && visibleContacts.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-wa-textMuted">
+                    Loading contacts…
+                  </td>
+                </tr>
+              )}
+              {loaded && visibleContacts.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-sm text-wa-textMuted">
                     No contacts match the current filters.

@@ -82,7 +82,7 @@ export function LogsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-wa-border bg-white px-6 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-wa-border bg-white px-3 py-3 md:px-6">
         <h1 className="text-lg font-semibold">Logs</h1>
         <div className="flex gap-1 rounded bg-wa-panel p-1 text-xs">
           <button
@@ -171,7 +171,7 @@ function ActivityTab() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-wa-border bg-wa-panel px-6 py-3">
+      <div className="border-b border-wa-border bg-wa-panel px-3 py-3 md:px-6">
         <div className="flex flex-wrap items-end gap-2">
           <Field label="User">
             <select
@@ -277,7 +277,7 @@ function ActivityTab() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead className="sticky top-0 bg-wa-panel text-xs text-wa-textMuted">
             <tr>
               <th className="px-4 py-2 text-left">When</th>
@@ -396,7 +396,7 @@ function ErrorsTab() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-wa-border bg-wa-panel px-6 py-3">
+      <div className="border-b border-wa-border bg-wa-panel px-3 py-3 md:px-6">
         <div className="flex flex-wrap items-end gap-2">
           <Field label="Source">
             <select
@@ -456,7 +456,7 @@ function ErrorsTab() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="sticky top-0 bg-wa-panel text-xs text-wa-textMuted">
             <tr>
               <th className="px-4 py-2 text-left">When</th>

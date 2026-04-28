@@ -23,6 +23,11 @@ export async function GET(req: Request) {
     where = "WHERE c.assigned_user_id IS NULL";
   }
 
+  // Cap the conversation list. The earlier query did 3 correlated subqueries
+  // per contact and ran across the whole contacts table (>400 rows in some
+  // tenants). On a phone over 4G that took multiple seconds. 500 is plenty —
+  // anything older than the 500th most recently active conversation is
+  // already a search/contact-page concern, not a chat concern.
   const rows = db()
     .prepare(
       `SELECT c.id, c.wa_id, c.name, c.wa_profile_name, c.last_message_at, c.last_inbound_at,
@@ -33,7 +38,8 @@ export async function GET(req: Request) {
               (SELECT COUNT(*) FROM messages m WHERE m.contact_id = c.id AND m.direction = 'inbound' AND m.read_at IS NULL) AS unread_count
          FROM contacts c
          ${where}
-        ORDER BY COALESCE(c.last_message_at, '1970-01-01') DESC`,
+        ORDER BY COALESCE(c.last_message_at, '1970-01-01') DESC
+        LIMIT 500`,
     )
     .all(...args);
   return NextResponse.json({ conversations: rows });

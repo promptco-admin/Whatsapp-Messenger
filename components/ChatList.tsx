@@ -56,6 +56,7 @@ export function ChatList({
   filter,
   setFilter,
   currentUser,
+  loaded = true,
 }: {
   conversations: Conversation[];
   selectedId: number | null;
@@ -66,6 +67,9 @@ export function ChatList({
   filter: ChatFilter;
   setFilter: (f: ChatFilter) => void;
   currentUser: CurrentUser | null;
+  /** False until the first /api/conversations response lands. Hides the
+   * "No conversations here" empty state during the initial fetch. */
+  loaded?: boolean;
 }) {
   const [sort, setSort] = useState<SortKey>("recent");
 
@@ -157,7 +161,23 @@ export function ChatList({
       </div>
 
       <div className="scroll-thin flex-1 overflow-y-auto">
-        {filtered.length === 0 && (
+        {!loaded && conversations.length === 0 && (
+          <div className="space-y-2 p-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="flex animate-pulse items-center gap-3 rounded p-2"
+              >
+                <div className="h-10 w-10 flex-none rounded-full bg-wa-panelDark/40" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 w-2/3 rounded bg-wa-panelDark/40" />
+                  <div className="h-3 w-5/6 rounded bg-wa-panelDark/30" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {loaded && filtered.length === 0 && (
           <div className="p-6 text-center text-sm text-wa-textMuted">
             No conversations here.
           </div>

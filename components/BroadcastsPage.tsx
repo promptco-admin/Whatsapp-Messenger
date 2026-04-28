@@ -207,7 +207,7 @@ export function BroadcastsPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-auto">
           {visibleBroadcasts.length === 0 && (
             <div className="p-8 text-center text-sm text-wa-textMuted">
               {broadcasts.length === 0
@@ -215,7 +215,7 @@ export function BroadcastsPage() {
                 : "No broadcasts match the current filters."}
             </div>
           )}
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[820px] text-sm">
             <thead className="sticky top-0 bg-white">
               <tr className="text-left text-xs text-wa-textMuted">
                 <th className="border-b border-wa-border px-6 py-2">Name</th>

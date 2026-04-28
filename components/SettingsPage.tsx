@@ -115,13 +115,14 @@ export function SettingsPage() {
               </button>
             )}
           </div>
-          <table className="w-full text-sm">
+          <div className="-mx-3 overflow-x-auto md:mx-0">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="text-left text-xs text-wa-textMuted">
-                <th className="border-b border-wa-border py-2">Name</th>
-                <th className="border-b border-wa-border py-2">Email</th>
-                <th className="border-b border-wa-border py-2">Role</th>
-                <th className="border-b border-wa-border py-2 text-center">Mask phones</th>
+                <th className="border-b border-wa-border py-2 px-3">Name</th>
+                <th className="border-b border-wa-border py-2 px-3">Email</th>
+                <th className="border-b border-wa-border py-2 px-3">Role</th>
+                <th className="border-b border-wa-border py-2 px-3 text-center">Mask phones</th>
                 <th className="border-b border-wa-border py-2"></th>
               </tr>
             </thead>
@@ -189,6 +190,7 @@ export function SettingsPage() {
               ))}
             </tbody>
           </table>
+          </div>
           {user.role === "admin" && (
             <div className="mt-2 text-[10px] text-wa-textMuted">
               As admin you can flip <b>Mask phones</b> for any agent. Agents can still toggle their

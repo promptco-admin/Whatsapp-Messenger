@@ -28,13 +28,22 @@ export function ChatsPage() {
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [filter, setFilter] = useState<ChatFilter>("all");
+  // Distinct from `conversations.length === 0`: this stays true until the very
+  // first response lands. Without it the empty-state ("No conversations here")
+  // flashes before the data arrives, which on slow mobile connections looks
+  // like the app is broken.
+  const [loaded, setLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
     const qs = filter === "all" ? "" : `?filter=${filter}`;
     const res = await fetch(`/api/conversations${qs}`, { cache: "no-store" });
-    if (!res.ok) return;
+    if (!res.ok) {
+      setLoaded(true);
+      return;
+    }
     const j = await res.json();
     setConversations(j.conversations || []);
+    setLoaded(true);
   }, [filter]);
 
   useEffect(() => {
@@ -66,6 +75,7 @@ export function ChatsPage() {
           filter={filter}
           setFilter={setFilter}
           currentUser={user}
+          loaded={loaded}
         />
       </div>
       <div
