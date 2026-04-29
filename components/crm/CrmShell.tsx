@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import type { CurrentUser } from "@/lib/useCurrentUser";
 
-type CrmTab = "pipeline" | "deals" | "stages";
+type CrmTab = "pipeline" | "deals" | "companies" | "stages";
 
 export function CrmShell({
   tab,
@@ -37,6 +37,9 @@ export function CrmShell({
           </CrmTabBtn>
           <CrmTabBtn active={tab === "deals"} onClick={() => setTab("deals")}>
             All Deals
+          </CrmTabBtn>
+          <CrmTabBtn active={tab === "companies"} onClick={() => setTab("companies")}>
+            Companies
           </CrmTabBtn>
           <CrmTabBtn active={tab === "stages"} onClick={() => setTab("stages")}>
             Stages

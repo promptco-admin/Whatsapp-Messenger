@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatPaise, formatPaiseToRupees } from "@/lib/money";
 import { formatPhonePretty } from "@/lib/display";
 import { DealEditDialog } from "./DealEditDialog";
+import { ActivityTimeline } from "./ActivityTimeline";
 
 type Stage = { id: number; name: string; color: string; is_won: number; is_lost: number };
 
@@ -14,6 +15,8 @@ type Deal = {
   contact_name: string | null;
   contact_wa_profile_name: string | null;
   contact_wa_id: string;
+  company_id: number | null;
+  company_name: string | null;
   owner_user_id: number | null;
   owner_name: string | null;
   stage_id: number | null;
@@ -211,11 +214,22 @@ export function DealDetailDialog({
                   )}
                 </div>
                 <h2 className="text-lg font-semibold text-slate-900">{deal.title}</h2>
-                <div className="mt-1 text-xs text-slate-500">
-                  {deal.contact_name ||
-                    deal.contact_wa_profile_name ||
-                    formatPhonePretty(deal.contact_wa_id)}
-                  <span> · {formatPhonePretty(deal.contact_wa_id)}</span>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                  <span>
+                    {deal.contact_name ||
+                      deal.contact_wa_profile_name ||
+                      formatPhonePretty(deal.contact_wa_id)}
+                  </span>
+                  <span>·</span>
+                  <span>{formatPhonePretty(deal.contact_wa_id)}</span>
+                  {deal.company_name && (
+                    <>
+                      <span>·</span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+                        🏢 {deal.company_name}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex flex-none items-center gap-2">
@@ -401,6 +415,13 @@ export function DealDetailDialog({
                 <div className="whitespace-pre-wrap text-sm text-slate-700">{deal.notes}</div>
               </div>
             )}
+
+            <div className="border-b border-slate-200 bg-slate-50/40 px-6 py-4">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                Activity
+              </div>
+              <ActivityTimeline endpoint={`/api/crm/deals/${dealId}/activity`} />
+            </div>
 
             <div className="flex justify-between px-6 py-4">
               <button

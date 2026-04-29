@@ -7,6 +7,8 @@ export type DealRow = {
   contact_name: string | null;
   contact_wa_profile_name: string | null;
   contact_wa_id: string;
+  company_id: number | null;
+  company_name: string | null;
   owner_user_id: number | null;
   owner_name: string | null;
   stage_id: number | null;
@@ -39,6 +41,8 @@ const DEAL_SELECT = `
          c.name AS contact_name,
          c.wa_profile_name AS contact_wa_profile_name,
          c.wa_id AS contact_wa_id,
+         c.company_id AS company_id,
+         co.name AS company_name,
          d.owner_user_id,
          u.name AS owner_name,
          d.stage_id,
@@ -49,6 +53,7 @@ const DEAL_SELECT = `
          d.created_at, d.updated_at, d.closed_at
     FROM deals d
     LEFT JOIN contacts c ON c.id = d.contact_id
+    LEFT JOIN companies co ON co.id = c.company_id
     LEFT JOIN users u ON u.id = d.owner_user_id
     LEFT JOIN deal_stages s ON s.id = d.stage_id
 `;

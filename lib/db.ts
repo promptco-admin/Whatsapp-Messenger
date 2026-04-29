@@ -558,6 +558,39 @@ function migrate(d: Database.Database) {
     seedDS.run("Won", 4, "#22c55e", 1, 0);
     seedDS.run("Lost", 5, "#94a3b8", 0, 1);
   }
+
+  // Phase 12B: Companies (CRM accounts).
+  //
+  // One company can have many contacts (decision maker + technical + accounts
+  // all at the same B2B customer). Deals are still linked to a single contact;
+  // a company's deals are derived by JOIN through contacts.company_id, so a
+  // contact moving between companies retroactively reattributes their deals
+  // (acceptable for one-time-sale motion — for retroactive immutability we'd
+  // need a snapshot column on deals).
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      website TEXT,
+      phone TEXT,
+      address TEXT,
+      industry TEXT,
+      notes TEXT,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name);
+    CREATE INDEX IF NOT EXISTS idx_companies_owner ON companies(owner_user_id);
+  `);
+
+  const contactColsPB = d.prepare("PRAGMA table_info(contacts)").all() as Array<{ name: string }>;
+  const contactColNamesPB = new Set(contactColsPB.map((c) => c.name));
+  if (!contactColNamesPB.has("company_id")) {
+    d.exec("ALTER TABLE contacts ADD COLUMN company_id INTEGER");
+    d.exec("CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)");
+  }
 }
 
 // ---------------------------------------------------------------------------

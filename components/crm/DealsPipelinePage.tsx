@@ -22,6 +22,8 @@ type Deal = {
   contact_name: string | null;
   contact_wa_profile_name: string | null;
   contact_wa_id: string;
+  company_id: number | null;
+  company_name: string | null;
   owner_user_id: number | null;
   owner_name: string | null;
   stage_id: number | null;
@@ -286,6 +288,9 @@ function DealCard({
         </div>
       </div>
       <div className="truncate text-[11px] text-slate-500">{contactDisplay}</div>
+      {deal.company_name && (
+        <div className="mt-0.5 truncate text-[10px] text-slate-400">🏢 {deal.company_name}</div>
+      )}
       <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
         <span>{deal.owner_name || "Unassigned"}</span>
         {deal.expected_close_date && <span>📅 {deal.expected_close_date}</span>}

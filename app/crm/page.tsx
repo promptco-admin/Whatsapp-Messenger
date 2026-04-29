@@ -5,9 +5,10 @@ import { CrmShell } from "@/components/crm/CrmShell";
 import { DealsPipelinePage } from "@/components/crm/DealsPipelinePage";
 import { DealsListPage } from "@/components/crm/DealsListPage";
 import { DealStagesManager } from "@/components/crm/DealStagesManager";
+import { CompaniesPage } from "@/components/crm/CompaniesPage";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
-type CrmTab = "pipeline" | "deals" | "stages";
+type CrmTab = "pipeline" | "deals" | "companies" | "stages";
 
 export default function CrmHome() {
   const [tab, setTab] = useState<CrmTab>("pipeline");
@@ -31,6 +32,7 @@ export default function CrmHome() {
     <CrmShell tab={tab} setTab={setTab} user={me.user}>
       {tab === "pipeline" && <DealsPipelinePage />}
       {tab === "deals" && <DealsListPage />}
+      {tab === "companies" && <CompaniesPage />}
       {tab === "stages" && <DealStagesManager />}
     </CrmShell>
   );

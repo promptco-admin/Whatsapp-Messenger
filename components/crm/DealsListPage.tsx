@@ -15,6 +15,8 @@ type Deal = {
   contact_name: string | null;
   contact_wa_profile_name: string | null;
   contact_wa_id: string;
+  company_id: number | null;
+  company_name: string | null;
   owner_user_id: number | null;
   owner_name: string | null;
   stage_id: number | null;
@@ -122,7 +124,10 @@ export function DealsListPage() {
                 className="cursor-pointer hover:bg-slate-50"
               >
                 <td className="border-b border-slate-100 px-4 py-2 font-medium text-slate-800">
-                  {d.title}
+                  <div>{d.title}</div>
+                  {d.company_name && (
+                    <div className="text-[11px] text-slate-500">🏢 {d.company_name}</div>
+                  )}
                 </td>
                 <td className="border-b border-slate-100 px-4 py-2 text-slate-600">
                   {d.contact_name ||
