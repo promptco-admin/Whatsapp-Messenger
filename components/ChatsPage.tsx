@@ -10,6 +10,9 @@ type Conversation = {
   id: number;
   wa_id: string;
   name: string | null;
+  /** WhatsApp profile name from the inbound webhook. Used as a fallback for
+   *  display when `name` (the agent-edited field) is empty. */
+  wa_profile_name: string | null;
   last_message_at: string | null;
   last_message_preview: string | null;
   last_message_direction: "inbound" | "outbound" | null;
