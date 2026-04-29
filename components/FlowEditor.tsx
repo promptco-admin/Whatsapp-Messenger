@@ -20,6 +20,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { formatPhonePretty } from "@/lib/display";
 
 type FlowApi = {
   id: number;
@@ -537,7 +538,7 @@ export function FlowEditor({ flowId, onClose }: { flowId: number; onClose: () =>
                     className="mb-2 rounded border border-wa-border bg-white p-2 text-xs"
                   >
                     <div className="flex justify-between">
-                      <b>{r.contact_name || `+${r.wa_id}`}</b>
+                      <b>{r.contact_name || formatPhonePretty(r.wa_id)}</b>
                       <span
                         className={`rounded px-1.5 py-0.5 text-[10px] ${
                           r.status === "completed"

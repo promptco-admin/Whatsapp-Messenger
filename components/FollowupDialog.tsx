@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Template, VariableMapping } from "@/lib/types";
+import { formatPhonePretty } from "@/lib/display";
 
 type Mode = "create" | "edit";
 
@@ -251,7 +252,7 @@ export function FollowupDialog({
 
   const contactLabel = useMemo(() => {
     if (!contact) return "";
-    return contact.name ? `${contact.name} (+${contact.wa_id})` : `+${contact.wa_id}`;
+    return contact.name ? `${contact.name} (${formatPhonePretty(contact.wa_id)})` : formatPhonePretty(contact.wa_id);
   }, [contact]);
 
   const hdrFormat = selectedTemplate ? headerFormat(selectedTemplate) : null;

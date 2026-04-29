@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Contact } from "@/lib/types";
+import { formatPhonePretty } from "@/lib/display";
 
 export function ContactEditDialog({
   open,
@@ -70,7 +71,7 @@ export function ContactEditDialog({
         <div className="mb-4 text-lg font-medium">Edit contact</div>
         <div className="mb-3">
           <label className="mb-1 block text-xs text-wa-textMuted">Phone</label>
-          <div className="rounded bg-wa-panel px-3 py-2 text-sm">+{contact.wa_id}</div>
+          <div className="rounded bg-wa-panel px-3 py-2 text-sm">{formatPhonePretty(contact.wa_id)}</div>
         </div>
         <div className="mb-3">
           <label className="mb-1 block text-xs text-wa-textMuted">Name</label>
@@ -195,7 +196,7 @@ export function ContactEditDialog({
                   if (!contact) return;
                   if (
                     !confirm(
-                      `Mark ${contact.name || "+" + contact.wa_id} as opted-out? They will be excluded from all future broadcasts and automation.`,
+                      `Mark ${contact.name || formatPhonePretty(contact.wa_id)} as opted-out? They will be excluded from all future broadcasts and automation.`,
                     )
                   )
                     return;

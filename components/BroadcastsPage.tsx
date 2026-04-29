@@ -313,7 +313,7 @@ export function BroadcastsPage() {
                     className="flex items-center justify-between border-b border-wa-border px-3 py-2"
                   >
                     <div>
-                      <div className="text-xs font-medium">{r.name || `+${displayPhone(r.wa_id, user)}`}</div>
+                      <div className="text-xs font-medium">{r.name || displayPhone(r.wa_id, user)}</div>
                       {r.error && (
                         <div className="text-[10px] text-red-600">{r.error}</div>
                       )}

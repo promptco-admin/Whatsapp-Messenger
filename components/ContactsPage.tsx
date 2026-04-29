@@ -314,7 +314,7 @@ export function ContactsPage() {
                       )}
                     </td>
                     <td className="border-b border-wa-border px-6 py-2">
-                      +{displayPhone(c.wa_id, user)}
+                      {displayPhone(c.wa_id, user)}
                     </td>
                     <td className="border-b border-wa-border px-6 py-2 text-xs">
                       {stage ? (

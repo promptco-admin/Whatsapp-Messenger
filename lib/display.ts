@@ -1,8 +1,8 @@
-/** Mask a phone number for display: "917028588899" → "917•••••99" */
+/** Mask a phone number for display: "917028588899" → "+917•••••99" */
 export function maskPhone(wa_id: string): string {
   if (!wa_id) return "";
-  if (wa_id.length <= 6) return wa_id.replace(/./g, "•");
-  return wa_id.slice(0, 3) + "•••••" + wa_id.slice(-2);
+  if (wa_id.length <= 6) return "+" + wa_id.replace(/./g, "•");
+  return "+" + wa_id.slice(0, 3) + "•••••" + wa_id.slice(-2);
 }
 
 /**
@@ -38,13 +38,14 @@ export type DisplayUser = {
 
 /**
  * Display a phone number, applying the current user's masking preference.
- * Admins can still see raw numbers even if masking is on — they just toggle.
+ * Returns the full display string including the leading "+", grouped for
+ * readability (e.g. "+91 98906 76871"). Admins can still see raw numbers
+ * even if masking is on — they just toggle.
  */
 export function displayPhone(wa_id: string, user: DisplayUser): string {
   if (!wa_id) return "";
-  if (!user) return wa_id;
-  if (user.phone_masking) return maskPhone(wa_id);
-  return wa_id;
+  if (user?.phone_masking) return maskPhone(wa_id);
+  return formatPhonePretty(wa_id);
 }
 
 /**
@@ -64,8 +65,7 @@ export function displayContactName(
   // Last-resort: format the raw phone with spaces so the chat list isn't a
   // wall of digits when 80% of contacts haven't replied yet (and therefore
   // have no profile name from Meta).
-  if (user?.phone_masking) return `+${maskPhone(c.wa_id)}`;
-  return formatPhonePretty(c.wa_id);
+  return displayPhone(c.wa_id, user);
 }
 
 /** Click-to-WhatsApp ad referral, stored as JSON on contact.source_json. */

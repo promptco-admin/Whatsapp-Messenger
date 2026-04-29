@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Template, VariableMapping } from "@/lib/types";
+import { formatPhonePretty } from "@/lib/display";
 
 type Step = {
   id?: number;
@@ -432,7 +433,7 @@ export function SequenceEditor({
             <div key={e.id} className="border-b border-wa-border bg-white px-3 py-2">
               <div className="flex items-center justify-between">
                 <div className="truncate text-xs font-medium">
-                  {e.name || `+${e.wa_id}`}
+                  {e.name || formatPhonePretty(e.wa_id)}
                 </div>
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] ${

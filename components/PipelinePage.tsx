@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FollowupDialog, FollowupDialogContact } from "./FollowupDialog";
+import { formatPhonePretty } from "@/lib/display";
 
 type Stage = {
   id: number;
@@ -28,7 +29,7 @@ type ContactRow = {
 function nameForCard(c: ContactRow): string {
   if (c.name && c.name.trim()) return c.name.trim();
   if (c.wa_profile_name && c.wa_profile_name.trim()) return c.wa_profile_name.trim();
-  return `+${c.wa_id}`;
+  return formatPhonePretty(c.wa_id);
 }
 
 const NEW_STAGE_DEFAULT = { name: "", color: "#94a3b8", auto_followup_days: "" as string };
@@ -258,7 +259,7 @@ export function PipelinePage() {
                         className="cursor-grab rounded border border-wa-border bg-white p-2 text-xs shadow-sm hover:border-wa-green active:cursor-grabbing"
                       >
                         <div className="font-medium text-wa-text">{nameForCard(c)}</div>
-                        <div className="text-[10px] text-wa-textMuted">+{c.wa_id}</div>
+                        <div className="text-[10px] text-wa-textMuted">{formatPhonePretty(c.wa_id)}</div>
                         {c.tags.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {c.tags.slice(0, 3).map((t) => (
@@ -333,7 +334,7 @@ export function PipelinePage() {
                 className="flex w-44 flex-none cursor-grab flex-col rounded border border-wa-border bg-white p-2 text-xs shadow-sm hover:border-wa-green active:cursor-grabbing"
               >
                 <div className="truncate font-medium text-wa-text">{nameForCard(c)}</div>
-                <div className="text-[10px] text-wa-textMuted">+{c.wa_id}</div>
+                <div className="text-[10px] text-wa-textMuted">{formatPhonePretty(c.wa_id)}</div>
               </div>
             ))}
             {(byStage.get(null) || []).length > 100 && (
@@ -590,7 +591,7 @@ function SearchAddContactDialog({
                     {nameForCard(c)}
                   </div>
                   <div className="text-[10px] text-wa-textMuted">
-                    +{c.wa_id}
+                    {formatPhonePretty(c.wa_id)}
                     {c.tags.length > 0 && (
                       <span className="ml-2">{c.tags.slice(0, 3).join(" · ")}</span>
                     )}

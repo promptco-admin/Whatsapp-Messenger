@@ -225,7 +225,7 @@ export function ChatView({
   }
 
   const display = contact ? displayContactName(contact, currentUser) : "";
-  const phoneDisplay = contact?.wa_id ? `+${displayPhone(contact.wa_id, currentUser)}` : "";
+  const phoneDisplay = contact?.wa_id ? displayPhone(contact.wa_id, currentUser) : "";
   // If the agent has a manual name AND the WhatsApp profile name differs, surface it as context.
   const waProfileName =
     contact?.wa_profile_name &&

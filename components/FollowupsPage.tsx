@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FollowupDialog, FollowupRecord, FollowupDialogContact } from "./FollowupDialog";
+import { formatPhonePretty } from "@/lib/display";
 
 type Bucket = "overdue" | "today" | "upcoming" | "done" | "failed" | "all";
 type Assignee = "all" | "me" | "unassigned";
@@ -138,7 +139,7 @@ export function FollowupsPage() {
   );
 
   async function quickAction(row: Row, action: "send_now" | "snooze" | "done" | "cancel") {
-    if (action === "send_now" && !confirm(`Send the follow-up message to ${row.contact_name || row.wa_id} now?`)) {
+    if (action === "send_now" && !confirm(`Send the follow-up message to ${row.contact_name || formatPhonePretty(row.wa_id)} now?`)) {
       return;
     }
     let body: any;
@@ -266,9 +267,9 @@ export function FollowupsPage() {
                   </div>
                   <div className="mt-0.5 text-xs text-wa-textMuted">
                     <span className="font-medium text-wa-text">
-                      {row.contact_name || `+${row.wa_id}`}
+                      {row.contact_name || formatPhonePretty(row.wa_id)}
                     </span>
-                    {row.contact_name && <span> · +{row.wa_id}</span>}
+                    {row.contact_name && <span> · {formatPhonePretty(row.wa_id)}</span>}
                     {row.assignee_name && <span> · 👤 {row.assignee_name}</span>}
                   </div>
                   {row.note && (
