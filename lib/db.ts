@@ -479,6 +479,85 @@ function migrate(d: Database.Database) {
     seed.run("Won", 4, "#22c55e", 1, 0, null);
     seed.run("Lost", 5, "#94a3b8", 0, 1, null);
   }
+
+  // Phase 12: CRM Deals.
+  //
+  // deal_stages — pipeline columns for the CRM (separate from `pipeline_stages`,
+  //   which is the lead-lifecycle pipeline on contacts). is_won / is_lost mark
+  //   terminal columns; closing a deal automatically writes `deals.closed_at`
+  //   and sets `deals.status` accordingly.
+  //
+  // deals — one record per opportunity. value_paise stores the total in paise
+  //   (integer) to avoid float drift; for display we divide by 100. Each deal
+  //   links to ONE contact (the buyer) and ONE owner (the agent). status mirrors
+  //   the stage's terminal flag for fast filtering.
+  //
+  // deal_line_items — one row per product/service on a deal. quantity is REAL
+  //   (so 1.5 hours, 0.5 kg etc work). unit_price_paise * quantity rolled up
+  //   into deals.value_paise on every change for fast pipeline-sum queries.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS deal_stages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      color TEXT DEFAULT '#94a3b8',
+      is_won INTEGER NOT NULL DEFAULT 0,
+      is_lost INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_deal_stages_order ON deal_stages(order_index);
+
+    CREATE TABLE IF NOT EXISTS deals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      stage_id INTEGER REFERENCES deal_stages(id) ON DELETE SET NULL,
+      value_paise INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'INR',
+      expected_close_date TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      won_lost_reason TEXT,
+      notes TEXT,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      closed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(stage_id, status);
+    CREATE INDEX IF NOT EXISTS idx_deals_owner ON deals(owner_user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_deals_contact ON deals(contact_id);
+    CREATE INDEX IF NOT EXISTS idx_deals_status_close ON deals(status, expected_close_date);
+
+    CREATE TABLE IF NOT EXISTS deal_line_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      kind TEXT NOT NULL DEFAULT 'product',
+      quantity REAL NOT NULL DEFAULT 1,
+      unit_price_paise INTEGER NOT NULL DEFAULT 0,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_deal_line_items_deal ON deal_line_items(deal_id, order_index);
+  `);
+
+  // Seed default deal stages on first boot.
+  const dealStageCount = d
+    .prepare("SELECT COUNT(*) as n FROM deal_stages")
+    .get() as { n: number };
+  if (dealStageCount.n === 0) {
+    const seedDS = d.prepare(
+      "INSERT INTO deal_stages (name, order_index, color, is_won, is_lost) VALUES (?, ?, ?, ?, ?)",
+    );
+    seedDS.run("New", 0, "#3b82f6", 0, 0);
+    seedDS.run("Qualified", 1, "#8b5cf6", 0, 0);
+    seedDS.run("Quoted", 2, "#f59e0b", 0, 0);
+    seedDS.run("Negotiating", 3, "#ec4899", 0, 0);
+    seedDS.run("Won", 4, "#22c55e", 1, 0);
+    seedDS.run("Lost", 5, "#94a3b8", 0, 1);
+  }
 }
 
 // ---------------------------------------------------------------------------
