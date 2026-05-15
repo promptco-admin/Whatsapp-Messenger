@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { db, upsertContact, touchContact } from "@/lib/db";
+import { db, upsertContact, touchContact, getSetting } from "@/lib/db";
 import { runKeywordReplies } from "@/lib/auto-reply-runner";
 import { handleInboundForFlows } from "@/lib/flow-runner";
 import { runAwayMessage } from "@/lib/away-runner";
-import { logError as auditLogError } from "@/lib/audit";
+import { logError as auditLogError, logActivity } from "@/lib/audit";
+import type { AdRoutingRule } from "@/app/api/settings/ad-routing/route";
 
 export const dynamic = "force-dynamic";
 
@@ -113,8 +114,12 @@ export async function POST(req: Request) {
           if (msg.referral) {
             try {
               const existing = db()
-                .prepare("SELECT source_json, tags FROM contacts WHERE id = ?")
-                .get(contactId) as { source_json: string | null; tags: string | null } | undefined;
+                .prepare(
+                  "SELECT source_json, tags, assigned_user_id FROM contacts WHERE id = ?",
+                )
+                .get(contactId) as
+                | { source_json: string | null; tags: string | null; assigned_user_id: number | null }
+                | undefined;
               if (existing && !existing.source_json) {
                 const r = msg.referral;
                 const source = {
@@ -140,6 +145,44 @@ export async function POST(req: Request) {
                 db()
                   .prepare("UPDATE contacts SET source_json = ?, tags = ? WHERE id = ?")
                   .run(JSON.stringify(source), JSON.stringify(tags), contactId);
+
+                // Ad → agent routing. Only assigns on first-touch and never
+                // overwrites a manual assignment (assigned_user_id IS NULL).
+                if (existing.assigned_user_id == null && source.source_id) {
+                  try {
+                    const rules = getSetting<AdRoutingRule[]>("ad_routing_rules", []);
+                    const match = Array.isArray(rules)
+                      ? rules.find((rule) => rule.source_id === source.source_id)
+                      : undefined;
+                    if (match) {
+                      const target = db()
+                        .prepare("SELECT id, name FROM users WHERE id = ? AND active = 1")
+                        .get(match.user_id) as { id: number; name: string } | undefined;
+                      if (target) {
+                        db()
+                          .prepare("UPDATE contacts SET assigned_user_id = ? WHERE id = ?")
+                          .run(target.id, contactId);
+                        logActivity({
+                          user: null,
+                          action: "contact.assign.ad_routing",
+                          entityType: "contact",
+                          entityId: contactId,
+                          contactId,
+                          summary: `Auto-assigned to ${target.name} via ad routing rule`,
+                          metadata: {
+                            assigned_user_id: target.id,
+                            assignee_name: target.name,
+                            ad_source_id: source.source_id,
+                            ad_headline: source.headline,
+                            rule_label: match.label || null,
+                          },
+                        });
+                      }
+                    }
+                  } catch (e) {
+                    console.error("[webhook] ad-routing assign error", e);
+                  }
+                }
               }
             } catch (e) {
               console.error("[webhook] referral store error", e);

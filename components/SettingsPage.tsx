@@ -203,6 +203,8 @@ export function SettingsPage() {
         {user.role === "admin" && <WebhookStatusSection />}
         {/* Out-of-hours away message */}
         <AwayMessageSection />
+        {/* Ad → Agent routing (admin only) */}
+        {user.role === "admin" && <AdRoutingSection />}
         {/* Click-tracking short links */}
         <ShortLinksSection />
         {/* QR code / wa.me link generator */}
@@ -1167,3 +1169,273 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Ad → Agent routing
+// Match Click-to-WhatsApp ads (Meta sends `referral.source_id` on the first
+// inbound) to a specific agent. The webhook auto-assigns the contact on
+// first-touch, never overwriting a manual assignment.
+
+type AdRoutingRule = {
+  id: string;
+  source_id: string;
+  user_id: number;
+  label: string | null;
+};
+
+type AgentOption = { id: number; name: string; email: string };
+type RecentAd = { source_id: string; headline: string | null; count: number };
+
+function AdRoutingSection() {
+  const [rules, setRules] = useState<AdRoutingRule[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [recent, setRecent] = useState<RecentAd[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  // Add-rule form
+  const [sourceId, setSourceId] = useState("");
+  const [label, setLabel] = useState("");
+  const [userId, setUserId] = useState<number | "">("");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch("/api/settings/ad-routing", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/settings/ad-routing/recent", { cache: "no-store" }).then((r) => r.json()),
+      ]);
+      setRules(Array.isArray(r1.rules) ? r1.rules : []);
+      setAgents(Array.isArray(r1.users) ? r1.users : []);
+      setRecent(Array.isArray(r2.ads) ? r2.ads : []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save(next: AdRoutingRule[]) {
+    setSaving(true);
+    setSavedMsg("");
+    setErr("");
+    try {
+      const res = await fetch("/api/settings/ad-routing", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules: next }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setErr(j.error || "Save failed");
+        return false;
+      }
+      setRules(Array.isArray(j.rules) ? j.rules : []);
+      setSavedMsg("Saved");
+      setTimeout(() => setSavedMsg(""), 1500);
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addRule() {
+    setErr("");
+    const sid = sourceId.trim();
+    if (!sid) {
+      setErr("Pick or paste an ad ID first.");
+      return;
+    }
+    if (!userId || typeof userId !== "number") {
+      setErr("Pick an agent.");
+      return;
+    }
+    if (rules.some((r) => r.source_id === sid)) {
+      setErr("A rule for this ad already exists — remove it first to change the agent.");
+      return;
+    }
+    const next: AdRoutingRule[] = [
+      ...rules,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        source_id: sid,
+        user_id: userId,
+        label: label.trim() || null,
+      },
+    ];
+    const ok = await save(next);
+    if (ok) {
+      setSourceId("");
+      setLabel("");
+      setUserId("");
+    }
+  }
+
+  async function removeRule(id: string) {
+    if (!confirm("Remove this routing rule?")) return;
+    await save(rules.filter((r) => r.id !== id));
+  }
+
+  function agentName(uid: number): string {
+    return agents.find((a) => a.id === uid)?.name || `User #${uid}`;
+  }
+
+  function adLabel(sid: string): string {
+    const m = recent.find((a) => a.source_id === sid);
+    if (m?.headline) return m.headline;
+    return sid;
+  }
+
+  // Recent ads not yet covered by a rule.
+  const ruledIds = new Set(rules.map((r) => r.source_id));
+  const suggestable = recent.filter((a) => !ruledIds.has(a.source_id));
+
+  return (
+    <section className="rounded-lg border border-wa-border bg-white p-5">
+      <div className="mb-1 text-sm font-medium">Ad → Agent routing</div>
+      <div className="mb-4 text-xs text-wa-textMuted">
+        When a customer messages you by clicking a Click-to-WhatsApp ad, auto-assign their
+        chat to a specific agent. Only applies on the first inbound from that ad — manual
+        re-assignments are never overwritten.
+      </div>
+
+      {loading ? (
+        <div className="text-xs text-wa-textMuted">Loading…</div>
+      ) : (
+        <>
+          {/* Existing rules */}
+          {rules.length === 0 ? (
+            <div className="mb-4 rounded border border-dashed border-wa-border p-3 text-xs text-wa-textMuted">
+              No routing rules yet. Add one below.
+            </div>
+          ) : (
+            <div className="mb-4 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-wa-border text-left text-wa-textMuted">
+                    <th className="py-2 pr-2">Ad</th>
+                    <th className="py-2 pr-2">Label</th>
+                    <th className="py-2 pr-2">Assign to</th>
+                    <th className="py-2 pr-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rules.map((r) => (
+                    <tr key={r.id} className="border-b border-wa-border/50">
+                      <td
+                        className="py-2 pr-2 max-w-[260px] truncate"
+                        title={`source_id: ${r.source_id}`}
+                      >
+                        {adLabel(r.source_id)}
+                        <div className="text-[10px] text-wa-textMuted">{r.source_id}</div>
+                      </td>
+                      <td className="py-2 pr-2 text-wa-textMuted">{r.label || "—"}</td>
+                      <td className="py-2 pr-2">{agentName(r.user_id)}</td>
+                      <td className="py-2 pr-2 text-right">
+                        <button
+                          onClick={() => removeRule(r.id)}
+                          disabled={saving}
+                          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Add new rule */}
+          <div className="rounded border border-wa-border bg-wa-panel/30 p-3">
+            <div className="mb-2 text-xs font-medium">Add a rule</div>
+            <div className="grid gap-2 md:grid-cols-[1fr_1fr_180px_auto]">
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
+                  Ad
+                </label>
+                {suggestable.length > 0 ? (
+                  <select
+                    value={sourceId}
+                    onChange={(e) => setSourceId(e.target.value)}
+                    className="w-full rounded border border-wa-border bg-white px-2 py-1.5 text-xs"
+                  >
+                    <option value="">— Pick a recent ad or paste below —</option>
+                    {suggestable.map((a) => (
+                      <option key={a.source_id} value={a.source_id}>
+                        {(a.headline || a.source_id) +
+                          ` (${a.count} contact${a.count === 1 ? "" : "s"})`}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <input
+                  value={sourceId}
+                  onChange={(e) => setSourceId(e.target.value)}
+                  placeholder="Or paste Meta ad source_id"
+                  className="mt-1 w-full rounded border border-wa-border px-2 py-1.5 text-xs"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
+                  Label (optional)
+                </label>
+                <input
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder="e.g. Diwali RO offer"
+                  className="w-full rounded border border-wa-border px-2 py-1.5 text-xs"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
+                  Assign to
+                </label>
+                <select
+                  value={userId}
+                  onChange={(e) =>
+                    setUserId(e.target.value ? Number(e.target.value) : "")
+                  }
+                  className="w-full rounded border border-wa-border bg-white px-2 py-1.5 text-xs"
+                >
+                  <option value="">— Pick agent —</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={addRule}
+                  disabled={saving}
+                  className="w-full rounded bg-wa-greenDark px-4 py-1.5 text-xs font-medium text-white hover:bg-wa-green disabled:opacity-50 md:w-auto"
+                >
+                  {saving ? "…" : "Add rule"}
+                </button>
+              </div>
+            </div>
+            {err && (
+              <div className="mt-2 rounded bg-red-50 p-2 text-[11px] text-red-700">{err}</div>
+            )}
+            {savedMsg && (
+              <div className="mt-2 text-[11px] text-wa-textMuted">{savedMsg}</div>
+            )}
+            <div className="mt-2 text-[10px] text-wa-textMuted">
+              Don&apos;t see your ad in the dropdown? You&apos;ll see it after at least one
+              customer has clicked it and messaged you. Until then, paste the Meta ad ID
+              directly.
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
