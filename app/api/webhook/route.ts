@@ -7,6 +7,7 @@ import { runAwayMessage } from "@/lib/away-runner";
 import { logError as auditLogError, logActivity } from "@/lib/audit";
 import { maybeCreditFastReply, recordLeadScoreEvent } from "@/lib/lead-score";
 import { captureCsatReply } from "@/lib/csat-runner";
+import { sendPushToAll, isPushEnabled } from "@/lib/push";
 import type { AdRoutingRule } from "@/app/api/settings/ad-routing/route";
 
 export const dynamic = "force-dynamic";
@@ -543,6 +544,18 @@ export async function POST(req: Request) {
             runAwayMessage(contactId, body).catch((e) =>
               console.error("[webhook] away-message error", e),
             );
+          }
+
+          // Phase 13: fan-out web push notification on every new inbound.
+          if (isNewMessage && isPushEnabled()) {
+            const contactName = name || `+${waId}`;
+            const preview = (body || `[${type}]`).slice(0, 80);
+            sendPushToAll({
+              title: `New message from ${contactName}`,
+              body: preview,
+              url: "/",
+              tag: `inbound-${contactId}`,
+            }).catch((e) => console.error("[webhook] push fan-out error", e));
           }
 
           // Phase 6c: advance flow runs + fire flow triggers.

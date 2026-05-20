@@ -211,6 +211,8 @@ export function SettingsPage() {
         <QrGeneratorSection />
         {/* Per-source tracked QRs (product / technician / generic) */}
         <TrackedQrSourcesSection currentUser={user} />
+        {/* Browser push notifications */}
+        <PushNotificationsSection />
       </div>
 
       <InviteUserDialog
@@ -1770,6 +1772,179 @@ function TrackedQrSourcesSection({ currentUser }: { currentUser: CurrentUser }) 
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 13: Browser push notifications.
+//
+// Renders a subscribe/unsubscribe toggle. Permission flow:
+//   1. User clicks Enable → Notification.requestPermission()
+//   2. If granted → ServiceWorkerRegistration.pushManager.subscribe(...)
+//   3. POST the resulting subscription JSON to /api/push/subscribe.
+//
+// We store the endpoint in localStorage so the UI knows the current state
+// across reloads (until the user clears site data).
+
+function PushNotificationsSection() {
+  const [supported, setSupported] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission>("default");
+  const [subscribed, setSubscribed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ok =
+      typeof window !== "undefined" &&
+      "serviceWorker" in navigator &&
+      "PushManager" in window;
+    setSupported(ok);
+    if (ok && typeof Notification !== "undefined") setPermission(Notification.permission);
+    if (ok) {
+      navigator.serviceWorker.ready.then(async (reg) => {
+        const sub = await reg.pushManager.getSubscription();
+        setSubscribed(!!sub);
+      });
+    }
+  }, []);
+
+  function urlBase64ToUint8Array(b64: string) {
+    const padding = "=".repeat((4 - (b64.length % 4)) % 4);
+    const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function enable() {
+    setBusy(true);
+    setInfo(null);
+    try {
+      const perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm !== "granted") {
+        setInfo("Notifications were blocked. Enable them in your browser settings.");
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!pub) {
+        setInfo("VAPID public key missing from server env. Restart the dev server.");
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(pub),
+      });
+      const res = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      });
+      if (res.ok) {
+        setSubscribed(true);
+        setInfo("Enabled. We'll ping this browser on every new inbound.");
+      }
+    } catch (e: any) {
+      setInfo(`Failed: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setBusy(true);
+    setInfo(null);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push/subscribe", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
+      }
+      setSubscribed(false);
+      setInfo("Disabled. You won't get push notifications on this browser anymore.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendTest() {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/push/test", { method: "POST" });
+      const j = await r.json();
+      setInfo(
+        r.ok ? `Test sent (${j.sent} delivered, ${j.pruned} dead subs pruned).` : `Failed: ${j.error}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-wa-border bg-white p-5">
+      <div className="mb-1 text-sm font-medium">Browser push notifications</div>
+      <div className="mb-4 text-xs text-wa-textMuted">
+        Get a desktop / mobile notification every time a customer messages you,
+        even when the app tab is in the background. Subscribe per device — your
+        laptop, your phone, your office desktop each opt in separately.
+      </div>
+
+      {!supported && (
+        <div className="rounded bg-amber-50 p-2 text-xs text-amber-800">
+          This browser doesn&apos;t support web push. Try Chrome, Edge, or Firefox.
+        </div>
+      )}
+
+      {supported && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-wa-textMuted">Permission:</span>
+            <span className="rounded bg-wa-panel px-2 py-0.5 font-medium">{permission}</span>
+            <span className="text-wa-textMuted">·</span>
+            <span className="text-wa-textMuted">Subscribed:</span>
+            <span className={`rounded px-2 py-0.5 font-medium ${subscribed ? "bg-green-100 text-green-800" : "bg-wa-panel"}`}>
+              {subscribed ? "yes" : "no"}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!subscribed ? (
+              <button
+                onClick={enable}
+                disabled={busy}
+                className="rounded bg-wa-greenDark px-3 py-1.5 text-xs font-medium text-white hover:bg-wa-green disabled:opacity-50"
+              >
+                {busy ? "…" : "🔔 Enable notifications on this browser"}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={sendTest}
+                  disabled={busy}
+                  className="rounded bg-wa-greenDark px-3 py-1.5 text-xs font-medium text-white hover:bg-wa-green disabled:opacity-50"
+                >
+                  Send test ping
+                </button>
+                <button
+                  onClick={disable}
+                  disabled={busy}
+                  className="rounded border border-wa-border bg-white px-3 py-1.5 text-xs hover:bg-wa-panel disabled:opacity-50"
+                >
+                  Disable on this browser
+                </button>
+              </>
+            )}
+          </div>
+          {info && <div className="rounded bg-wa-panel px-3 py-2 text-xs text-wa-text">{info}</div>}
         </div>
       )}
     </section>

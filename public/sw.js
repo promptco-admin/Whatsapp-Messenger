@@ -13,7 +13,7 @@
  *
  * Bump CACHE_VERSION when you change the SW so old caches get cleaned up.
  */
-const CACHE_VERSION = "prompt-wa-v2";
+const CACHE_VERSION = "prompt-wa-v3";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 
 const SHELL_URLS = [
@@ -107,6 +107,8 @@ self.addEventListener("push", (event) => {
     body: data.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
+    tag: data.tag || undefined,
+    renotify: !!data.tag,
     data: { url: data.url || "/" },
   };
   event.waitUntil(self.registration.showNotification(title, options));
