@@ -27,6 +27,7 @@ type Conversation = {
   assigned_user_id: number | null;
   assigned_user_name: string | null;
   source_json: string | null;
+  lead_score?: number | null;
 };
 
 function initials(s: string) {
@@ -209,6 +210,14 @@ export function ChatList({
                         title={`Came from ad: ${source.headline || source.source_id || "ad"}`}
                       >
                         📣
+                      </span>
+                    )}
+                    {(c.lead_score ?? 0) >= 50 && (
+                      <span
+                        className="flex-none rounded bg-red-100 px-1 text-[10px] font-medium text-red-700"
+                        title={`Hot lead — score ${c.lead_score}`}
+                      >
+                        🔥 {c.lead_score}
                       </span>
                     )}
                   </div>

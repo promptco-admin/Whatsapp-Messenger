@@ -4,11 +4,15 @@ import { runSequenceTick } from "./sequence-runner";
 import { runFlowTick } from "./flow-runner";
 import { runFollowupTick } from "./followup-runner";
 import { pruneLogs, LOG_RETENTION_DAYS } from "./audit";
+import { decayStaleScores } from "./lead-score";
+import { runCsatTick } from "./csat-runner";
 
 let started = false;
 const TICK_MS = 60_000; // 60s
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000; // 1h
+const DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1h
 let lastPruneAt = 0;
+let lastDecayAt = 0;
 
 export function startScheduler() {
   if (started) return;
@@ -32,6 +36,16 @@ async function tick() {
   await runSequenceTick();
   await runFlowTick();
   await runFollowupTick();
+  await runCsatTick();
+  if (Date.now() - lastDecayAt > DECAY_INTERVAL_MS) {
+    lastDecayAt = Date.now();
+    try {
+      const changed = decayStaleScores();
+      if (changed > 0) console.log(`[scheduler] decayed ${changed} lead scores`);
+    } catch (e) {
+      console.error("[scheduler] decay error", e);
+    }
+  }
   // Prune logs at most once per hour. Cheap when nothing's expired.
   if (Date.now() - lastPruneAt > PRUNE_INTERVAL_MS) {
     lastPruneAt = Date.now();

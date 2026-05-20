@@ -5,6 +5,8 @@ import { runKeywordReplies } from "@/lib/auto-reply-runner";
 import { handleInboundForFlows } from "@/lib/flow-runner";
 import { runAwayMessage } from "@/lib/away-runner";
 import { logError as auditLogError, logActivity } from "@/lib/audit";
+import { maybeCreditFastReply, recordLeadScoreEvent } from "@/lib/lead-score";
+import { captureCsatReply } from "@/lib/csat-runner";
 import type { AdRoutingRule } from "@/app/api/settings/ad-routing/route";
 
 export const dynamic = "force-dynamic";
@@ -335,6 +337,21 @@ export async function POST(req: Request) {
             }
           }
 
+          // Phase 13: lead scoring — credit fast-reply if appropriate.
+          if (isNewMessage && type !== "reaction") {
+            try {
+              maybeCreditFastReply(contactId);
+            } catch (e) {
+              console.error("[webhook] lead-score fast_reply error", e);
+            }
+          }
+          // First inbound from an ad → from-ad bump
+          if (isNewMessage && isFirstInbound && msg.referral) {
+            try {
+              recordLeadScoreEvent(contactId, "from_ad_first_touch");
+            } catch {}
+          }
+
           // Phase 13: detect [CODE] markers from QR-source-prefilled messages.
           // Applies the source's auto-tag + auto-assignment on first inbound,
           // bumps the scan counter, and writes an audit event.
@@ -405,11 +422,107 @@ export async function POST(req: Request) {
             }
           }
 
+          // Phase 13: detect a catalog inquiry. If the customer recently
+          // received a catalog and replies with a number (1–N) or a
+          // [PROD-id] marker, log it as a structured inquiry + bump score.
+          if (isNewMessage && body && type === "text") {
+            try {
+              const recentSend = db()
+                .prepare(
+                  `SELECT id, product_ids FROM catalog_sends
+                    WHERE contact_id = ?
+                      AND created_at >= datetime('now','-7 days')
+                    ORDER BY id DESC LIMIT 1`,
+                )
+                .get(contactId) as { id: number; product_ids: string } | undefined;
+              if (recentSend) {
+                let pIds: number[] = [];
+                try {
+                  pIds = JSON.parse(recentSend.product_ids);
+                } catch {}
+                let matchedProductId: number | null = null;
+                const explicit = body.match(/\[PROD-(\d+)\]/i);
+                if (explicit) {
+                  matchedProductId = Number(explicit[1]);
+                } else {
+                  // Plain numeric reply ("2", "I want #2")
+                  const numMatch = body.match(/\b([1-9]\d?)\b/);
+                  if (numMatch) {
+                    const idx = Number(numMatch[1]) - 1;
+                    if (idx >= 0 && idx < pIds.length) {
+                      matchedProductId = pIds[idx];
+                    }
+                  }
+                }
+                if (matchedProductId) {
+                  // Look up the inserted message row id for this inbound.
+                  const lastMsg = db()
+                    .prepare(
+                      "SELECT id FROM messages WHERE contact_id = ? ORDER BY id DESC LIMIT 1",
+                    )
+                    .get(contactId) as { id: number } | undefined;
+                  db()
+                    .prepare(
+                      "INSERT INTO catalog_inquiries (contact_id, product_id, message_id) VALUES (?, ?, ?)",
+                    )
+                    .run(contactId, matchedProductId, lastMsg?.id || null);
+                  try {
+                    recordLeadScoreEvent(
+                      contactId,
+                      "catalog_inquiry",
+                      `prod:${matchedProductId}`,
+                    );
+                  } catch {}
+                  // Tag the contact with the matched category so future
+                  // segmentation works.
+                  const prodCat = db()
+                    .prepare("SELECT category FROM products WHERE id = ?")
+                    .get(matchedProductId) as { category: string | null } | undefined;
+                  if (prodCat?.category) {
+                    const cRow = db()
+                      .prepare("SELECT tags FROM contacts WHERE id = ?")
+                      .get(contactId) as { tags: string | null } | undefined;
+                    let tags: string[] = [];
+                    try {
+                      tags = JSON.parse(cRow?.tags || "[]");
+                    } catch {}
+                    const newTag = `interest:${prodCat.category}`;
+                    if (!tags.includes(newTag)) {
+                      tags.push(newTag);
+                      db()
+                        .prepare("UPDATE contacts SET tags = ? WHERE id = ?")
+                        .run(JSON.stringify(tags), contactId);
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("[webhook] catalog inquiry detect error", e);
+            }
+          }
+
+          // Phase 13: try to capture a CSAT reply BEFORE auto-replies fire,
+          // so a bare "5" doesn't accidentally trigger a keyword rule.
+          let csatCaptured = false;
+          if (
+            isNewMessage &&
+            body &&
+            !suppressAutomation &&
+            type === "text"
+          ) {
+            try {
+              csatCaptured = captureCsatReply(contactId, body);
+            } catch (e) {
+              console.error("[webhook] csat capture error", e);
+            }
+          }
+
           // Fire keyword auto-replies for new inbound text-like messages.
           // Text bodies and captions are the only useful triggers; skip pure media.
           if (
             isNewMessage &&
             body &&
+            !csatCaptured &&
             !suppressAutomation &&
             ["text", "button", "interactive"].includes(type)
           ) {

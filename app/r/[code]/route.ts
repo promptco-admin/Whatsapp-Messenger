@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { recordLeadScoreEvent } from "@/lib/lead-score";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,12 @@ export async function GET(
          VALUES (?, ?, ?, ?)`,
       )
       .run(link.id, contactId, ip, ua);
+    // Phase 13: bump lead score on link clicks (deduped via reason marker).
+    if (contactId) {
+      try {
+        recordLeadScoreEvent(contactId, "short_link_click", `link:${link.id}`);
+      } catch {}
+    }
   } catch (e) {
     console.error("[/r] log error", e);
   }

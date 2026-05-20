@@ -106,6 +106,12 @@ export function ChatView({
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [followupOpen, setFollowupOpen] = useState(false);
   const [newNote, setNewNote] = useState("");
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogProducts, setCatalogProducts] = useState<
+    Array<{ id: number; name: string; category: string | null; price_paise: number }>
+  >([]);
+  const [catalogPicked, setCatalogPicked] = useState<Set<number>>(new Set());
+  const [catalogBusy, setCatalogBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Voice-note recording state
@@ -264,6 +270,42 @@ export function ChatView({
       : null;
   const canFreeForm = withinWindow(contact?.last_inbound_at ?? null);
   const source = parseContactSource(contact?.source_json ?? null);
+
+  async function openCatalog() {
+    setCatalogPicked(new Set());
+    setCatalogOpen(true);
+    const r = await fetch("/api/products", { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      setCatalogProducts(j.products || []);
+    }
+  }
+
+  async function sendCatalog() {
+    if (!contact) return;
+    setCatalogBusy(true);
+    try {
+      const r = await fetch("/api/catalog/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact_id: contact.id,
+          product_ids:
+            catalogPicked.size > 0 ? Array.from(catalogPicked) : undefined,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        alert(`Send failed: ${j.error || r.statusText}`);
+        return;
+      }
+      setCatalogOpen(false);
+      await load();
+      onMessageSent();
+    } finally {
+      setCatalogBusy(false);
+    }
+  }
 
   async function startRecording() {
     if (recording) return;
@@ -618,6 +660,18 @@ export function ChatView({
             >
               Quick replies
             </button>
+            <button
+              onClick={openCatalog}
+              disabled={!canFreeForm}
+              className="rounded-full bg-white px-3 py-2 text-xs font-medium text-wa-text hover:bg-wa-panelDark disabled:opacity-50"
+              title={
+                canFreeForm
+                  ? "Send your product catalog to this contact"
+                  : "Catalog requires an open 24h window"
+              }
+            >
+              📦 Catalog
+            </button>
             {recording ? (
               <div className="flex flex-1 items-center gap-2 rounded-full border border-red-300 bg-red-50 px-3 py-2">
                 <span className="relative flex h-2.5 w-2.5">
@@ -729,6 +783,84 @@ export function ChatView({
           onSaved={() => {}}
           contact={contact ? { id: contact.id, name: contact.name, wa_id: contact.wa_id } : null}
         />
+
+        {catalogOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            onClick={() => setCatalogOpen(false)}
+          >
+            <div
+              className="flex max-h-[88vh] w-full max-w-md flex-col rounded-lg bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-wa-border px-4 py-3">
+                <div>
+                  <div className="text-sm font-medium">Send catalog</div>
+                  <div className="text-[11px] text-wa-textMuted">
+                    Leave all unticked to send your full catalog.
+                  </div>
+                </div>
+                <button onClick={() => setCatalogOpen(false)} className="text-xs text-wa-textMuted hover:text-wa-text">
+                  Close
+                </button>
+              </div>
+              <div className="scroll-thin flex-1 overflow-y-auto p-2">
+                {catalogProducts.length === 0 && (
+                  <div className="p-6 text-center text-xs text-wa-textMuted">
+                    No active products. Add some in the Products tab.
+                  </div>
+                )}
+                {catalogProducts.map((p) => {
+                  const on = catalogPicked.has(p.id);
+                  return (
+                    <label
+                      key={p.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-wa-panel ${
+                        on ? "bg-wa-bubbleOut/40" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          setCatalogPicked((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(p.id)) next.delete(p.id);
+                            else next.add(p.id);
+                            return next;
+                          })
+                        }
+                        className="h-4 w-4 accent-wa-greenDark"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm">{p.name}</div>
+                        <div className="text-[11px] text-wa-textMuted">
+                          {p.category || ""}
+                          {p.category && p.price_paise ? " · " : ""}
+                          {p.price_paise ? `₹${(p.price_paise / 100).toLocaleString("en-IN")}` : ""}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between border-t border-wa-border px-4 py-3">
+                <div className="text-xs text-wa-textMuted">
+                  {catalogPicked.size === 0
+                    ? `${catalogProducts.length} products will be sent`
+                    : `${catalogPicked.size} picked`}
+                </div>
+                <button
+                  onClick={sendCatalog}
+                  disabled={catalogBusy || catalogProducts.length === 0}
+                  className="rounded bg-wa-greenDark px-4 py-1.5 text-sm font-medium text-white hover:bg-wa-green disabled:opacity-50"
+                >
+                  {catalogBusy ? "Sending…" : "Send catalog"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {notesOpen && (

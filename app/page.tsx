@@ -13,6 +13,7 @@ import { PipelinePage } from "@/components/PipelinePage";
 import { AnalyticsPage } from "@/components/AnalyticsPage";
 import { SettingsPage } from "@/components/SettingsPage";
 import { LogsPage } from "@/components/LogsPage";
+import { ProductsPage } from "@/components/ProductsPage";
 import { PromptLogo } from "@/components/PromptLogo";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
@@ -26,6 +27,7 @@ type Tab =
   | "followups"
   | "pipeline"
   | "analytics"
+  | "products"
   | "logs"
   | "settings";
 
@@ -111,6 +113,15 @@ export default function Home() {
           </svg>
         </NavButton>
         <NavButton
+          label="Products"
+          active={tab === "products"}
+          onClick={() => setTab("products")}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20 6h-4V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-10-2h4v2h-4V4z" />
+          </svg>
+        </NavButton>
+        <NavButton
           label="Analytics"
           active={tab === "analytics"}
           onClick={() => setTab("analytics")}
@@ -153,6 +164,7 @@ export default function Home() {
         {tab === "sequences" && <SequencesPage />}
         {tab === "auto-replies" && <AutoRepliesPage />}
         {tab === "flows" && <FlowsPage />}
+        {tab === "products" && <ProductsPage />}
         {tab === "analytics" && <AnalyticsPage />}
         {tab === "logs" && <LogsPage />}
         {tab === "settings" && <SettingsPage />}

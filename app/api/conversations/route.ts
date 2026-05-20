@@ -31,7 +31,7 @@ export async function GET(req: Request) {
   const rows = db()
     .prepare(
       `SELECT c.id, c.wa_id, c.name, c.wa_profile_name, c.last_message_at, c.last_inbound_at,
-              c.assigned_user_id, c.source_json,
+              c.assigned_user_id, c.source_json, c.lead_score,
               (SELECT u.name FROM users u WHERE u.id = c.assigned_user_id) AS assigned_user_name,
               (SELECT body FROM messages m WHERE m.contact_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_preview,
               (SELECT direction FROM messages m WHERE m.contact_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_direction,
