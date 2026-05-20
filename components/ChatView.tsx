@@ -108,6 +108,13 @@ export function ChatView({
   const [newNote, setNewNote] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Voice-note recording state
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load() {
     if (!contactId) return;
@@ -257,6 +264,98 @@ export function ChatView({
       : null;
   const canFreeForm = withinWindow(contact?.last_inbound_at ?? null);
   const source = parseContactSource(contact?.source_json ?? null);
+
+  async function startRecording() {
+    if (recording) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert("Your browser doesn't support audio recording.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Prefer OGG/Opus (WhatsApp voice-note native), fall back to webm/opus or default.
+      const preferred = [
+        "audio/ogg;codecs=opus",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+      ];
+      const mimeType = preferred.find((m) =>
+        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m),
+      );
+      const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+        recordTimerRef.current = null;
+        const blob = new Blob(recordChunksRef.current, {
+          type: mr.mimeType || "audio/ogg",
+        });
+        if (blob.size > 1024) await sendVoiceBlob(blob, mr.mimeType || "audio/ogg");
+      };
+      mediaRecorderRef.current = mr;
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
+      mr.start();
+      setRecording(true);
+    } catch (e: any) {
+      alert(`Mic access denied or unavailable: ${e?.message || e}`);
+    }
+  }
+
+  function stopRecording(send: boolean) {
+    const mr = mediaRecorderRef.current;
+    if (!mr) return;
+    if (!send) {
+      // Cancel: discard chunks before onstop runs
+      recordChunksRef.current = [];
+    }
+    if (mr.state !== "inactive") mr.stop();
+    setRecording(false);
+  }
+
+  async function sendVoiceBlob(blob: Blob, mime: string) {
+    if (!contact) return;
+    setVoiceBusy(true);
+    try {
+      const ext = mime.includes("ogg") ? "ogg" : mime.includes("webm") ? "webm" : "m4a";
+      const form = new FormData();
+      form.append("file", new File([blob], `voice-${Date.now()}.${ext}`, { type: mime }));
+      const up = await fetch("/api/media/upload", { method: "POST", body: form });
+      const uj = await up.json();
+      if (!up.ok) {
+        alert(`Upload failed: ${uj.error || up.statusText}`);
+        return;
+      }
+      const res = await fetch("/api/messages/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wa_id: contact.wa_id,
+          kind: "voice",
+          media_id: uj.id,
+          mime,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Send failed: ${j.error || res.statusText}`);
+      }
+      await load();
+      onMessageSent();
+    } finally {
+      setVoiceBusy(false);
+    }
+  }
+
+  function fmtRecSeconds(s: number): string {
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${r.toString().padStart(2, "0")}`;
+  }
 
   async function handleSendText() {
     if (!contact) return;
@@ -519,7 +618,31 @@ export function ChatView({
             >
               Quick replies
             </button>
-            <input
+            {recording ? (
+              <div className="flex flex-1 items-center gap-2 rounded-full border border-red-300 bg-red-50 px-3 py-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
+                </span>
+                <span className="text-xs font-medium text-red-700">
+                  Recording… {fmtRecSeconds(recordSeconds)}
+                </span>
+                <button
+                  onClick={() => stopRecording(false)}
+                  className="ml-auto rounded-full px-2 py-1 text-xs text-red-700 hover:bg-red-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => stopRecording(true)}
+                  className="rounded-full bg-wa-greenDark px-3 py-1 text-xs font-medium text-white hover:bg-wa-green"
+                >
+                  Send
+                </button>
+              </div>
+            ) : (
+              <>
+              <input
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -566,6 +689,27 @@ export function ChatView({
             >
               {sending ? "…" : "Send"}
             </button>
+            <button
+              onClick={startRecording}
+              disabled={!canFreeForm || voiceBusy}
+              title={
+                canFreeForm
+                  ? "Record a voice note"
+                  : "Voice notes require an open 24h window"
+              }
+              aria-label="Record voice note"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-wa-greenDark text-white hover:bg-wa-green disabled:opacity-40"
+            >
+              {voiceBusy ? (
+                <span className="text-xs">…</span>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z" />
+                </svg>
+              )}
+            </button>
+            </>
+            )}
           </div>
         </div>
 

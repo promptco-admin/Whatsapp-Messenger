@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, upsertContact, touchContact } from "@/lib/db";
-import { sendText, sendTemplate, type TemplateSendComponent } from "@/lib/whatsapp";
+import { sendText, sendTemplate, sendAudio, type TemplateSendComponent } from "@/lib/whatsapp";
 import { requireUser } from "@/lib/auth";
 import { logActivity, logError, clientIp } from "@/lib/audit";
 
@@ -47,6 +47,34 @@ export async function POST(req: Request) {
         contactId,
         summary: `Sent text to +${normalized}: "${text.slice(0, 80)}${text.length > 80 ? "…" : ""}"`,
         metadata: { kind: "text", length: text.length },
+        ipAddress: clientIp(req),
+      });
+      return NextResponse.json({ id: res.lastInsertRowid, messageId });
+    }
+
+    if (kind === "audio" || kind === "voice") {
+      const mediaId = String(body.media_id || "").trim();
+      if (!mediaId) {
+        return NextResponse.json({ error: "media_id required" }, { status: 400 });
+      }
+      const mime = String(body.mime || "audio/ogg");
+      const asVoice = kind === "voice" || !!body.voice;
+      const { messageId } = await sendAudio(normalized, mediaId, { voice: asVoice });
+      const res = db()
+        .prepare(
+          `INSERT INTO messages (wa_message_id, contact_id, direction, type, body, status, sent_by_user_id, media_id, media_mime)
+           VALUES (?, ?, 'outbound', 'audio', ?, 'sent', ?, ?, ?)`,
+        )
+        .run(messageId, contactId, asVoice ? "[voice note]" : "[audio]", user.id, mediaId, mime);
+      touchContact(contactId);
+      logActivity({
+        user: { id: user.id, name: user.name, role: user.role },
+        action: "message.send",
+        entityType: "message",
+        entityId: Number(res.lastInsertRowid),
+        contactId,
+        summary: `Sent ${asVoice ? "voice note" : "audio"} to +${normalized}`,
+        metadata: { kind: asVoice ? "voice" : "audio", media_id: mediaId },
         ipAddress: clientIp(req),
       });
       return NextResponse.json({ id: res.lastInsertRowid, messageId });

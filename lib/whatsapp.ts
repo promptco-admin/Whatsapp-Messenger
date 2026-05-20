@@ -133,6 +133,32 @@ export async function downloadMedia(
   return { buffer: buf, mime, size: buf.length };
 }
 
+/**
+ * Send a voice / audio message by media_id (uploaded previously to /media).
+ * `voice: true` plays as a voice note bubble (no filename, no controls); false
+ * plays as a regular audio attachment.
+ */
+export async function sendAudio(
+  to: string,
+  mediaId: string,
+  opts: { voice?: boolean } = {},
+): Promise<{ messageId: string }> {
+  const phoneId = env("WHATSAPP_PHONE_NUMBER_ID");
+  const audio: Record<string, any> = { id: mediaId };
+  if (opts.voice) audio.voice = true;
+  const json = await graphFetch(`${phoneId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "audio",
+      audio,
+    }),
+  });
+  return { messageId: json?.messages?.[0]?.id };
+}
+
 export async function sendTemplate(
   to: string,
   templateName: string,
