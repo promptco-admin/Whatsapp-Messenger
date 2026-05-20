@@ -209,6 +209,8 @@ export function SettingsPage() {
         <ShortLinksSection />
         {/* QR code / wa.me link generator */}
         <QrGeneratorSection />
+        {/* Per-source tracked QRs (product / technician / generic) */}
+        <TrackedQrSourcesSection currentUser={user} />
       </div>
 
       <InviteUserDialog
@@ -1439,3 +1441,337 @@ function AdRoutingSection() {
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Phase 13: Saved / tracked QR sources (per-product, per-technician, generic).
+// Each row generates a wa.me link that includes a [CODE] marker. When the
+// customer sends the prefilled message, the webhook detects the code and
+// auto-applies the tag + assignment.
+
+type QrSource = {
+  id: number;
+  label: string;
+  kind: "product" | "technician" | "generic";
+  short_code: string;
+  prefill_text: string;
+  auto_tag: string | null;
+  auto_assign_user_id: number | null;
+  product_id: number | null;
+  assignee_name: string | null;
+  product_name: string | null;
+  scan_count: number;
+  last_scanned_at: string | null;
+};
+
+type ProductLite = { id: number; name: string };
+
+function TrackedQrSourcesSection({ currentUser }: { currentUser: CurrentUser }) {
+  const [sources, setSources] = useState<QrSource[]>([]);
+  const [team, setTeam] = useState<TeamUser[]>([]);
+  const [products, setProducts] = useState<ProductLite[]>([]);
+  const [phone, setPhone] = useState("");
+  const [editing, setEditing] = useState<Partial<QrSource> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const r = await fetch("/api/qr-sources", { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      setSources(j.sources || []);
+    }
+  }
+  async function loadTeam() {
+    const r = await fetch("/api/users", { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      setTeam(j.users || []);
+    }
+  }
+  async function loadProducts() {
+    const r = await fetch("/api/products", { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      setProducts((j.products || []).map((p: any) => ({ id: p.id, name: p.name })));
+    }
+  }
+
+  useEffect(() => {
+    load();
+    loadTeam();
+    loadProducts();
+  }, []);
+
+  function startNew(kind: QrSource["kind"]) {
+    const defaults: Record<QrSource["kind"], { label: string; prefill: string; tag: string | null }> = {
+      product: {
+        label: "Product enquiry",
+        prefill: "Hi, I'm interested in this product.",
+        tag: "product-enquiry",
+      },
+      technician: {
+        label: `${currentUser.name}'s field card`,
+        prefill: `Hi, I met ${currentUser.name} today.`,
+        tag: "field-lead",
+      },
+      generic: {
+        label: "General enquiry",
+        prefill: "Hi, please tell me more.",
+        tag: null,
+      },
+    };
+    setEditing({
+      kind,
+      label: defaults[kind].label,
+      prefill_text: defaults[kind].prefill,
+      auto_tag: defaults[kind].tag,
+      auto_assign_user_id: kind === "technician" ? currentUser.id : null,
+    });
+  }
+
+  async function save() {
+    if (!editing) return;
+    setBusy(true);
+    try {
+      const url = editing.id ? `/api/qr-sources/${editing.id}` : "/api/qr-sources";
+      const method = editing.id ? "PATCH" : "POST";
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: editing.label,
+          kind: editing.kind,
+          prefill_text: editing.prefill_text,
+          auto_tag: editing.auto_tag || null,
+          auto_assign_user_id: editing.auto_assign_user_id || null,
+          product_id: editing.product_id || null,
+        }),
+      });
+      if (r.ok) {
+        setEditing(null);
+        load();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: number) {
+    if (!confirm("Delete this QR source? The codes printed on materials will stop tracking.")) return;
+    await fetch(`/api/qr-sources/${id}`, { method: "DELETE" });
+    load();
+  }
+
+  function linkFor(src: QrSource): string {
+    const digits = phone.replace(/[^0-9]/g, "");
+    const msg = `${src.prefill_text} [${src.short_code}]`;
+    return digits.length >= 8
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
+      : `wa.me/<your-number>?text=${encodeURIComponent(msg)}`;
+  }
+
+  function qrUrl(src: QrSource): string {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(linkFor(src))}`;
+  }
+
+  return (
+    <section className="rounded-lg border border-wa-border bg-white p-5">
+      <div className="mb-1 text-sm font-medium">Tracked QR codes (per product / technician)</div>
+      <div className="mb-4 text-xs text-wa-textMuted">
+        Generate QRs that auto-tag and auto-assign incoming chats. Each prefilled
+        message contains a hidden code like <code>[A1B2C]</code> so we can attribute
+        the lead even if the customer edits the message.
+      </div>
+
+      <div className="mb-4">
+        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
+          Your WhatsApp number (with country code, no +) — used by every QR below
+        </label>
+        <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="919876543210"
+          className="w-full max-w-xs rounded border border-wa-border px-3 py-2 text-sm"
+        />
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => startNew("product")}
+          className="rounded bg-wa-greenDark px-3 py-1.5 text-xs font-medium text-white hover:bg-wa-green"
+        >
+          + Product QR
+        </button>
+        <button
+          onClick={() => startNew("technician")}
+          className="rounded border border-wa-border bg-white px-3 py-1.5 text-xs hover:bg-wa-panel"
+        >
+          + Field / technician QR
+        </button>
+        <button
+          onClick={() => startNew("generic")}
+          className="rounded border border-wa-border bg-white px-3 py-1.5 text-xs hover:bg-wa-panel"
+        >
+          + Generic QR
+        </button>
+      </div>
+
+      {sources.length === 0 && (
+        <div className="rounded border border-dashed border-wa-border p-6 text-center text-xs text-wa-textMuted">
+          No tracked QR codes yet. Create one above.
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {sources.map((s) => (
+          <div key={s.id} className="flex flex-wrap items-start gap-4 rounded border border-wa-border p-3">
+            <img
+              src={qrUrl(s)}
+              alt={`QR ${s.short_code}`}
+              width={120}
+              height={120}
+              className="flex-none rounded border border-wa-border bg-white p-1"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">{s.label}</span>
+                <span className="rounded bg-wa-panel px-1.5 py-0.5 text-[10px] text-wa-textMuted">
+                  {s.kind}
+                </span>
+                <code className="rounded bg-wa-bubbleOut px-1.5 py-0.5 text-[10px] text-green-900">
+                  [{s.short_code}]
+                </code>
+                <span className="text-[10px] text-wa-textMuted">
+                  {s.scan_count} scan{s.scan_count === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="mb-1 line-clamp-2 text-xs text-wa-textMuted">{s.prefill_text}</div>
+              <div className="mb-2 flex flex-wrap gap-1 text-[10px] text-wa-textMuted">
+                {s.auto_tag && <span className="rounded bg-wa-panel px-1.5 py-0.5">#{s.auto_tag}</span>}
+                {s.assignee_name && (
+                  <span className="rounded bg-wa-panel px-1.5 py-0.5">→ {s.assignee_name}</span>
+                )}
+                {s.product_name && (
+                  <span className="rounded bg-wa-panel px-1.5 py-0.5">📦 {s.product_name}</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <a
+                  href={qrUrl(s)}
+                  download={`qr-${s.short_code}.png`}
+                  className="text-wa-greenDark hover:underline"
+                >
+                  ⬇ Download QR
+                </a>
+                <button
+                  onClick={() => navigator.clipboard.writeText(linkFor(s))}
+                  className="text-wa-greenDark hover:underline"
+                >
+                  📋 Copy link
+                </button>
+                <button onClick={() => setEditing(s)} className="text-wa-textMuted hover:underline">
+                  Edit
+                </button>
+                <button
+                  onClick={() => remove(s.id)}
+                  className="text-red-600 hover:underline"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {editing && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setEditing(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 text-base font-medium">
+              {editing.id ? "Edit QR source" : `New ${editing.kind} QR`}
+            </div>
+            <div className="space-y-3">
+              <input
+                value={editing.label || ""}
+                onChange={(e) => setEditing({ ...editing, label: e.target.value })}
+                placeholder="Label (e.g. RO Purifier ad — Pune)"
+                className="w-full rounded border border-wa-border px-3 py-2 text-sm"
+              />
+              <textarea
+                value={editing.prefill_text || ""}
+                onChange={(e) => setEditing({ ...editing, prefill_text: e.target.value })}
+                rows={3}
+                placeholder="Prefilled message"
+                className="w-full rounded border border-wa-border px-3 py-2 text-sm"
+              />
+              <input
+                value={editing.auto_tag || ""}
+                onChange={(e) => setEditing({ ...editing, auto_tag: e.target.value })}
+                placeholder="Auto-tag (optional, e.g. field-lead-ramesh)"
+                className="w-full rounded border border-wa-border px-3 py-2 text-sm"
+              />
+              <select
+                value={editing.auto_assign_user_id || ""}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    auto_assign_user_id: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                className="w-full rounded border border-wa-border bg-white px-3 py-2 text-sm"
+              >
+                <option value="">— don't auto-assign —</option>
+                {team
+                  .filter((t) => t.active)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+              </select>
+              {editing.kind === "product" && (
+                <select
+                  value={editing.product_id || ""}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      product_id: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                  className="w-full rounded border border-wa-border bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">— link to product (optional) —</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setEditing(null)}
+                className="rounded px-3 py-1.5 text-xs text-wa-textMuted hover:bg-wa-panel"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={busy || !editing.label?.trim() || !editing.prefill_text?.trim()}
+                className="rounded bg-wa-greenDark px-3 py-1.5 text-xs font-medium text-white hover:bg-wa-green disabled:opacity-50"
+              >
+                {busy ? "…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

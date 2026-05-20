@@ -335,6 +335,76 @@ export async function POST(req: Request) {
             }
           }
 
+          // Phase 13: detect [CODE] markers from QR-source-prefilled messages.
+          // Applies the source's auto-tag + auto-assignment on first inbound,
+          // bumps the scan counter, and writes an audit event.
+          if (isNewMessage && body && type === "text") {
+            try {
+              const codeMatch = body.match(/\[([A-Z0-9]{3,12})\]/i);
+              if (codeMatch) {
+                const code = codeMatch[1].toUpperCase();
+                const src = db()
+                  .prepare(
+                    "SELECT id, label, kind, auto_tag, auto_assign_user_id FROM qr_sources WHERE short_code = ?",
+                  )
+                  .get(code) as
+                  | {
+                      id: number;
+                      label: string;
+                      kind: string;
+                      auto_tag: string | null;
+                      auto_assign_user_id: number | null;
+                    }
+                  | undefined;
+                if (src) {
+                  db()
+                    .prepare(
+                      "UPDATE qr_sources SET scan_count = scan_count + 1, last_scanned_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    )
+                    .run(src.id);
+                  // Apply auto-tag + auto-assign on first inbound only (so the
+                  // same code re-used by a returning customer doesn't reshuffle
+                  // assignments).
+                  if (isFirstInbound) {
+                    if (src.auto_tag) {
+                      const cRow = db()
+                        .prepare("SELECT tags FROM contacts WHERE id = ?")
+                        .get(contactId) as { tags: string | null } | undefined;
+                      let tags: string[] = [];
+                      try {
+                        tags = JSON.parse(cRow?.tags || "[]");
+                      } catch {
+                        tags = [];
+                      }
+                      if (!tags.includes(src.auto_tag)) tags.push(src.auto_tag);
+                      db()
+                        .prepare("UPDATE contacts SET tags = ? WHERE id = ?")
+                        .run(JSON.stringify(tags), contactId);
+                    }
+                    if (src.auto_assign_user_id) {
+                      db()
+                        .prepare(
+                          "UPDATE contacts SET assigned_user_id = ? WHERE id = ? AND assigned_user_id IS NULL",
+                        )
+                        .run(src.auto_assign_user_id, contactId);
+                    }
+                    logActivity({
+                      user: null,
+                      action: "qr_source.scan",
+                      entityType: "contact",
+                      entityId: contactId,
+                      contactId,
+                      summary: `Came in via QR source "${src.label}" (${src.kind})`,
+                      metadata: { qr_source_id: src.id, short_code: code, kind: src.kind },
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("[webhook] qr_source detect error", e);
+            }
+          }
+
           // Fire keyword auto-replies for new inbound text-like messages.
           // Text bodies and captions are the only useful triggers; skip pure media.
           if (

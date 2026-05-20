@@ -591,6 +591,125 @@ function migrate(d: Database.Database) {
     d.exec("ALTER TABLE contacts ADD COLUMN company_id INTEGER");
     d.exec("CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)");
   }
+
+  // -------------------------------------------------------------------------
+  // Phase 13: per-source QR codes (products, technicians, generic).
+  //
+  // Each row generates a wa.me link containing a [CODE] marker. When a
+  // contact's first inbound contains that marker, the webhook auto-tags +
+  // optionally assigns them.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS qr_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'generic',
+      short_code TEXT NOT NULL UNIQUE,
+      prefill_text TEXT NOT NULL,
+      auto_tag TEXT,
+      auto_assign_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      product_id INTEGER,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      scan_count INTEGER NOT NULL DEFAULT 0,
+      last_scanned_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_qr_sources_code ON qr_sources(short_code);
+  `);
+
+  // -------------------------------------------------------------------------
+  // Phase 13: product catalog (local). Hooks for future Meta Catalog API sync
+  // (catalog_id / retailer_id columns reserved).
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sku TEXT,
+      name TEXT NOT NULL,
+      description TEXT,
+      category TEXT,
+      image_url TEXT,
+      price_paise INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'INR',
+      active INTEGER NOT NULL DEFAULT 1,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      meta_retailer_id TEXT,
+      meta_catalog_synced_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_products_active ON products(active, order_index);
+
+    CREATE TABLE IF NOT EXISTS catalog_inquiries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+      message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_catalog_inquiries_contact ON catalog_inquiries(contact_id);
+
+    CREATE TABLE IF NOT EXISTS catalog_sends (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      sent_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      product_ids TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_catalog_sends_contact ON catalog_sends(contact_id, created_at);
+  `);
+
+  // -------------------------------------------------------------------------
+  // Phase 13: lead scoring (per-contact).
+  const contactColsLS = d.prepare("PRAGMA table_info(contacts)").all() as Array<{ name: string }>;
+  const contactColNamesLS = new Set(contactColsLS.map((c) => c.name));
+  if (!contactColNamesLS.has("lead_score")) {
+    d.exec("ALTER TABLE contacts ADD COLUMN lead_score INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!contactColNamesLS.has("lead_score_updated_at")) {
+    d.exec("ALTER TABLE contacts ADD COLUMN lead_score_updated_at TEXT");
+  }
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS lead_score_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      delta INTEGER NOT NULL,
+      reason TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_lead_score_contact ON lead_score_events(contact_id, created_at);
+  `);
+
+  // -------------------------------------------------------------------------
+  // Phase 13: CSAT (post-deal satisfaction survey).
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS csat_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deal_id INTEGER REFERENCES deals(id) ON DELETE CASCADE,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      responded_at TEXT,
+      score INTEGER,
+      comment TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_csat_contact ON csat_requests(contact_id, requested_at);
+    CREATE INDEX IF NOT EXISTS idx_csat_deal ON csat_requests(deal_id);
+  `);
+
+  // -------------------------------------------------------------------------
+  // Phase 13: web push subscriptions.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      user_agent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+  `);
 }
 
 // ---------------------------------------------------------------------------
