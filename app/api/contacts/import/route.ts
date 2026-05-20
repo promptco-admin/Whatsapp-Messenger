@@ -18,6 +18,12 @@ export async function POST(req: Request) {
   const body = await req.json();
   const rows: ImportRow[] = Array.isArray(body.rows) ? body.rows : [];
   const defaultTag: string | null = body.tag ? String(body.tag).trim() : null;
+  // Auto-tag every CSV-imported contact so they can be segmented + reported on
+  // later. Both a generic "imported" tag and a date-bucketed "imported-YYYY-MM-DD"
+  // tag, so Sid can find a specific batch by tag.
+  const today = new Date();
+  const batchTag = `imported-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const autoTags = ["imported", batchTag];
 
   let created = 0;
   let updated = 0;
@@ -49,6 +55,7 @@ export async function POST(req: Request) {
         .map((s) => s.trim())
         .filter(Boolean);
       if (defaultTag) rowTags.push(defaultTag);
+      for (const t of autoTags) rowTags.push(t);
 
       if (existing) {
         const existingTags: string[] = safeParse(existing.tags, []);

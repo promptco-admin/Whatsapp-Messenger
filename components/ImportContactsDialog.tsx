@@ -68,11 +68,26 @@ export function ImportContactsDialog({
     <div className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/40 p-0 sm:items-center sm:p-4">
       <div className="flex w-full max-w-2xl flex-col bg-white p-4 shadow-xl sm:my-auto sm:max-h-[92vh] sm:overflow-y-auto sm:rounded-lg sm:p-6">
         <div className="mb-2 text-lg font-medium">Import contacts from CSV</div>
-        <div className="mb-4 text-xs text-wa-textMuted">
+        <div className="mb-3 text-xs text-wa-textMuted">
           Your CSV should have a <b>phone</b> column (with country code, digits only). Optional
           columns: <b>name</b>, <b>tags</b> (comma-separated), and any extras become custom fields.
           Example headers:{" "}
           <code className="rounded bg-wa-panel px-1">phone,name,tags,city,plan</code>
+        </div>
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded border border-wa-border bg-wa-panel/40 p-2 text-[11px] text-wa-textMuted">
+          <a
+            href="/sample-contacts.csv"
+            download="sample-contacts.csv"
+            className="rounded border border-wa-border bg-white px-2 py-1 text-xs font-medium text-wa-greenDark hover:bg-wa-panel"
+          >
+            ⬇ Download sample CSV
+          </a>
+          <span>
+            Every imported contact is auto-tagged{" "}
+            <code className="rounded bg-white px-1">#imported</code> plus a date tag like{" "}
+            <code className="rounded bg-white px-1">#imported-{new Date().toISOString().slice(0, 10)}</code>
+            , so you can find this batch later.
+          </span>
         </div>
 
         <div className="mb-3">

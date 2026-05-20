@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { useEffect, useState } from "react";
 import type { Template } from "@/lib/types";
+import { ContactPickerDialog } from "./ContactPickerDialog";
 
 export type MessageRow = {
   id: number;
@@ -115,6 +116,29 @@ export function MessageBubble({ msg, onAnnotated }: { msg: MessageRow; onAnnotat
     minute: "2-digit",
   });
   const [shared, setShared] = useState<"idle" | "copied" | "shared">("idle");
+  const [forwardOpen, setForwardOpen] = useState(false);
+  const [forwardStatus, setForwardStatus] = useState<string | null>(null);
+
+  async function handleForward(contactIds: number[]) {
+    setForwardStatus(null);
+    const res = await fetch("/api/messages/forward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id: msg.id, contact_ids: contactIds }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setForwardStatus(j.error || "Forward failed");
+      return;
+    }
+    const parts: string[] = [];
+    if (j.sent) parts.push(`✓ ${j.sent} sent`);
+    if (j.skipped) parts.push(`${j.skipped} skipped (out of 24h)`);
+    if (j.failed) parts.push(`${j.failed} failed`);
+    setForwardStatus(parts.join(" · ") || "Done");
+    setForwardOpen(false);
+    setTimeout(() => setForwardStatus(null), 4000);
+  }
 
   async function handleShare() {
     const text = msg.body || msg.media_filename || msg.template_name || "";
@@ -146,23 +170,48 @@ export function MessageBubble({ msg, onAnnotated }: { msg: MessageRow; onAnnotat
         )}
       >
         {canShare && (
-          <button
-            onClick={handleShare}
-            title={shared === "copied" ? "Copied!" : shared === "shared" ? "Shared!" : "Share message"}
-            aria-label="Share message"
-            className="absolute -top-2 right-1 hidden h-6 w-6 items-center justify-center rounded-full bg-white text-wa-textMuted shadow ring-1 ring-wa-border hover:text-wa-greenDark group-hover:flex"
-          >
-            {shared === "idle" ? (
+          <div className="absolute -top-2 right-1 hidden items-center gap-1 group-hover:flex">
+            <button
+              onClick={() => setForwardOpen(true)}
+              title="Forward to WhatsApp contacts"
+              aria-label="Forward message"
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-wa-textMuted shadow ring-1 ring-wa-border hover:text-wa-greenDark"
+            >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18 8a3 3 0 1 0-2.83-4H15a3 3 0 0 0 .17 1L8.83 8.83A3 3 0 1 0 8.83 15.17l6.34 3.83A3 3 0 1 0 16.83 17l-6.34-3.83a3 3 0 0 0 0-2.34L16.83 7A3 3 0 0 0 18 8z" />
+                <path d="M12 8V4l8 8-8 8v-4H4V8z" />
               </svg>
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-wa-greenDark">
-                <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-              </svg>
-            )}
-          </button>
+            </button>
+            <button
+              onClick={handleShare}
+              title={shared === "copied" ? "Copied!" : shared === "shared" ? "Shared!" : "Share outside app"}
+              aria-label="Share message"
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-wa-textMuted shadow ring-1 ring-wa-border hover:text-wa-greenDark"
+            >
+              {shared === "idle" ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18 8a3 3 0 1 0-2.83-4H15a3 3 0 0 0 .17 1L8.83 8.83A3 3 0 1 0 8.83 15.17l6.34 3.83A3 3 0 1 0 16.83 17l-6.34-3.83a3 3 0 0 0 0-2.34L16.83 7A3 3 0 0 0 18 8z" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-wa-greenDark">
+                  <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                </svg>
+              )}
+            </button>
+          </div>
         )}
+        {forwardStatus && (
+          <div className="mt-1 rounded bg-wa-panel px-2 py-0.5 text-[10px] text-wa-textMuted">
+            {forwardStatus}
+          </div>
+        )}
+        <ContactPickerDialog
+          open={forwardOpen}
+          onClose={() => setForwardOpen(false)}
+          onConfirm={handleForward}
+          title="Forward message to…"
+          confirmLabel="Forward"
+          flagOutsideWindow
+        />
         {msg.template_name && (
           <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
             Template · {msg.template_name}

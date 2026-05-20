@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Template, VariableMapping } from "@/lib/types";
+import { ContactPickerDialog } from "./ContactPickerDialog";
 
 type HeaderMediaType = "image" | "video" | "document";
 
@@ -54,6 +55,10 @@ export function BroadcastComposer({
   const [error, setError] = useState<string | null>(null);
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [scheduledFor, setScheduledFor] = useState("");
+  // Audience mode: "segment" = tag/conditions (existing), "manual" = pick specific contacts
+  const [audienceMode, setAudienceMode] = useState<"segment" | "manual">("segment");
+  const [manualIds, setManualIds] = useState<number[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +81,11 @@ export function BroadcastComposer({
 
   useEffect(() => {
     if (!open) return;
+    // Manual mode: recipient count is just the picked list.
+    if (audienceMode === "manual") {
+      setRecipientCount(manualIds.length);
+      return;
+    }
     // Phase 8: if any multi-condition filter is set, use segment-preview;
     // otherwise fall back to the simpler contacts?tag= path.
     const validConds = segmentConditions.filter((c) => c.field && c.op);
@@ -95,7 +105,7 @@ export function BroadcastComposer({
     fetch(`/api/contacts?${params}`)
       .then((r) => r.json())
       .then((j) => setRecipientCount((j.contacts || []).length));
-  }, [segment, segmentConditions, open]);
+  }, [segment, segmentConditions, open, audienceMode, manualIds]);
 
   const selected = useMemo(
     () =>
@@ -174,12 +184,14 @@ export function BroadcastComposer({
       }
 
       const validConds = segmentConditions.filter((c) => c.field && c.op);
+      const isManual = audienceMode === "manual";
       const payload: any = {
         name: broadcastName.trim() || `${selected.name} broadcast`,
         template_name: selected.name,
         language: selected.language,
-        segment_tag: validConds.length > 0 ? null : segment,
-        segment_conditions: validConds,
+        segment_tag: isManual || validConds.length > 0 ? null : segment,
+        segment_conditions: isManual ? [] : validConds,
+        contact_ids: isManual ? manualIds : undefined,
         variable_mapping: mapping,
         buttons: dynamicButtons.length ? dynamicButtons : undefined,
         scheduled_for: scheduledIso,
@@ -276,7 +288,63 @@ export function BroadcastComposer({
               </div>
 
               <div>
-                <label className="mb-1 block text-xs text-wa-textMuted">Audience (segment)</label>
+                <label className="mb-1 block text-xs text-wa-textMuted">Audience</label>
+                <div className="mb-2 flex gap-2">
+                  <button
+                    onClick={() => setAudienceMode("segment")}
+                    className={`rounded border px-3 py-1 text-xs ${
+                      audienceMode === "segment"
+                        ? "border-wa-greenDark bg-wa-greenDark text-white"
+                        : "border-wa-border bg-white"
+                    }`}
+                  >
+                    By segment / tag
+                  </button>
+                  <button
+                    onClick={() => setAudienceMode("manual")}
+                    className={`rounded border px-3 py-1 text-xs ${
+                      audienceMode === "manual"
+                        ? "border-wa-greenDark bg-wa-greenDark text-white"
+                        : "border-wa-border bg-white"
+                    }`}
+                  >
+                    Pick contacts manually
+                  </button>
+                </div>
+              </div>
+
+              {audienceMode === "manual" && (
+                <div className="rounded border border-wa-border bg-wa-panel/40 p-3">
+                  <div className="mb-2 text-xs text-wa-textMuted">
+                    Build a one-off broadcast list by hand-picking contacts.
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm">
+                      <b>{manualIds.length}</b> contact{manualIds.length === 1 ? "" : "s"} picked
+                    </div>
+                    <div className="flex gap-2">
+                      {manualIds.length > 0 && (
+                        <button
+                          onClick={() => setManualIds([])}
+                          className="rounded border border-wa-border bg-white px-3 py-1 text-xs"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setPickerOpen(true)}
+                        className="rounded bg-wa-greenDark px-3 py-1 text-xs font-medium text-white hover:bg-wa-green"
+                      >
+                        {manualIds.length === 0 ? "Select contacts" : "Edit selection"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {audienceMode === "segment" && (
+              <div>
+                <label className="mb-1 block text-xs text-wa-textMuted">Segment / tag</label>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setSegment(null)}
@@ -311,8 +379,10 @@ export function BroadcastComposer({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Phase 8: advanced multi-condition segment builder */}
+              {audienceMode === "segment" && (
               <div>
                 <label className="mb-1 block text-xs text-wa-textMuted">
                   Advanced filter (all conditions must match)
@@ -360,6 +430,7 @@ export function BroadcastComposer({
                   </div>
                 )}
               </div>
+              )}
             </div>
 
             {!selected && (
@@ -563,6 +634,17 @@ export function BroadcastComposer({
           </div>
         </div>
       </div>
+
+      <ContactPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="Broadcast list — pick contacts"
+        confirmLabel="Use these"
+        onConfirm={(ids) => {
+          setManualIds(ids);
+          setPickerOpen(false);
+        }}
+      />
     </div>
   );
 }
