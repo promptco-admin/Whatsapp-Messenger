@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MessageBubble, type MessageRow } from "./MessageBubble";
 import { TemplatePicker } from "./TemplatePicker";
 import { QuickReplyManager, type QuickReply } from "./QuickReplyManager";
@@ -53,6 +53,28 @@ function timeAgo(iso: string): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function dayLabel(d: Date): string {
+  const today = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays > 1 && diffDays < 7) {
+    return d.toLocaleDateString([], { weekday: "long" });
+  }
+  return d.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function DateDivider({ label }: { label: string }) {
+  return (
+    <div className="my-2 flex justify-center">
+      <span className="rounded-md bg-white/80 px-3 py-1 text-[11px] font-medium text-wa-textMuted shadow-sm">
+        {label}
+      </span>
+    </div>
+  );
 }
 
 export function ChatView({
@@ -434,9 +456,23 @@ export function ChatView({
               No messages yet. Send a template to start the conversation.
             </div>
           )}
-          {messages.map((m) => (
-            <MessageBubble key={m.id} msg={m} onAnnotated={load} />
-          ))}
+          {(() => {
+            const out: ReactNode[] = [];
+            let lastDay: string | null = null;
+            for (const m of messages) {
+              const iso = m.created_at.includes("T")
+                ? m.created_at
+                : m.created_at.replace(" ", "T") + "Z";
+              const d = new Date(iso);
+              const dayKey = isNaN(d.getTime()) ? "" : d.toDateString();
+              if (dayKey && dayKey !== lastDay) {
+                out.push(<DateDivider key={`day-${dayKey}-${m.id}`} label={dayLabel(d)} />);
+                lastDay = dayKey;
+              }
+              out.push(<MessageBubble key={m.id} msg={m} onAnnotated={load} />);
+            }
+            return out;
+          })()}
         </div>
 
         <div className="relative border-t border-wa-border bg-wa-panel">

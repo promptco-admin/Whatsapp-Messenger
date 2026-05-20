@@ -102,12 +102,41 @@ export function MessageBubble({ msg, onAnnotated }: { msg: MessageRow; onAnnotat
   const createdIso = msg.created_at.includes("T")
     ? msg.created_at
     : msg.created_at.replace(" ", "T") + "Z";
-  const time = new Date(createdIso).toLocaleTimeString([], {
+  const createdDate = new Date(createdIso);
+  const time = createdDate.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
+  const fullTimestamp = createdDate.toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const [shared, setShared] = useState<"idle" | "copied" | "shared">("idle");
+
+  async function handleShare() {
+    const text = msg.body || msg.media_filename || msg.template_name || "";
+    if (!text) return;
+    try {
+      if (typeof navigator !== "undefined" && (navigator as any).share) {
+        await (navigator as any).share({ text });
+        setShared("shared");
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setShared("copied");
+      }
+      setTimeout(() => setShared("idle"), 1500);
+    } catch {
+      // user cancelled or share failed — no-op
+    }
+  }
+
+  const canShare = Boolean(msg.body || msg.media_filename || msg.template_name);
+
   return (
-    <div className={clsx("flex w-full", out ? "justify-end" : "justify-start")}>
+    <div className={clsx("group flex w-full", out ? "justify-end" : "justify-start")}>
       <div
         className={clsx(
           "relative max-w-[75%] rounded-lg px-3 py-2 shadow-sm",
@@ -116,6 +145,24 @@ export function MessageBubble({ msg, onAnnotated }: { msg: MessageRow; onAnnotat
           isExternalGhost && "ring-1 ring-amber-300",
         )}
       >
+        {canShare && (
+          <button
+            onClick={handleShare}
+            title={shared === "copied" ? "Copied!" : shared === "shared" ? "Shared!" : "Share message"}
+            aria-label="Share message"
+            className="absolute -top-2 right-1 hidden h-6 w-6 items-center justify-center rounded-full bg-white text-wa-textMuted shadow ring-1 ring-wa-border hover:text-wa-greenDark group-hover:flex"
+          >
+            {shared === "idle" ? (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18 8a3 3 0 1 0-2.83-4H15a3 3 0 0 0 .17 1L8.83 8.83A3 3 0 1 0 8.83 15.17l6.34 3.83A3 3 0 1 0 16.83 17l-6.34-3.83a3 3 0 0 0 0-2.34L16.83 7A3 3 0 0 0 18 8z" />
+              </svg>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-wa-greenDark">
+                <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </svg>
+            )}
+          </button>
+        )}
         {msg.template_name && (
           <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-wa-textMuted">
             Template · {msg.template_name}
@@ -142,7 +189,7 @@ export function MessageBubble({ msg, onAnnotated }: { msg: MessageRow; onAnnotat
           <ExternalGhostAnnotator messageId={msg.id} onAnnotated={onAnnotated} />
         )}
         <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-wa-textMuted">
-          <span>{time}</span>
+          <span title={fullTimestamp}>{time}</span>
           {out && <StatusTicks status={msg.status} />}
         </div>
       </div>
