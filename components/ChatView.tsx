@@ -113,7 +113,7 @@ export function ChatView({
   const [catalogPicked, setCatalogPicked] = useState<Set<number>>(new Set());
   const [catalogBusy, setCatalogBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Voice-note recording state
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -189,6 +189,17 @@ export function ChatView({
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
+
+  // Auto-grow the composer textarea: shrink back to 1 row on empty, expand
+  // up to ~6 lines of content, then internal scroll. Keeps the WhatsApp-like
+  // single-line look when the user is typing short replies.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxH = 140; // ~6 lines @ text-sm + padding
+    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+  }, [text]);
 
   useEffect(() => {
     if (text.startsWith("/") && !text.includes(" ") && !text.includes("\n")) {
@@ -696,7 +707,7 @@ export function ChatView({
               </div>
             ) : (
               <>
-              <input
+              <textarea
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -723,18 +734,28 @@ export function ChatView({
                     return;
                   }
                 }
-                if (e.key === "Enter" && !e.shiftKey && canFreeForm) {
+                // Enter without modifiers sends. Shift+Enter / Ctrl+Enter / ⌘+Enter
+                // all insert a new line so the user can write paragraphs.
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  !e.ctrlKey &&
+                  !e.metaKey &&
+                  !e.altKey &&
+                  canFreeForm
+                ) {
                   e.preventDefault();
                   handleSendText();
                 }
               }}
+              rows={1}
               disabled={!canFreeForm || sending}
               placeholder={
                 canFreeForm
-                  ? "Type a message  (try / for a quick reply)"
+                  ? "Type a message — Shift+Enter for a new line (try / for a quick reply)"
                   : "Free-form replies require a customer message within the last 24h — send a template instead"
               }
-              className="flex-1 rounded-full bg-white px-4 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-wa-panelDark disabled:text-wa-textMuted"
+              className="scroll-thin flex-1 resize-none overflow-y-auto rounded-2xl bg-white px-4 py-2 text-sm leading-snug outline-none disabled:cursor-not-allowed disabled:bg-wa-panelDark disabled:text-wa-textMuted"
             />
             <button
               onClick={handleSendText}
