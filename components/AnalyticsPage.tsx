@@ -78,10 +78,13 @@ type PipelineStage = {
 
 type AnalyticsData = {
   days: number;
+  range: { from: string; to: string };
+  agent_id: number | null;
   overview: Overview;
   templates: TemplateRow[];
   agents: AgentRow[];
   daily: DailyRow[];
+  daily_per_agent: Array<{ agent_id: number; day: string; messages: number; notes: number }>;
   top_ads: TopAd[];
   heatmap: number[][]; // 7x24
   pipeline: { stages: PipelineStage[]; unstaged: number };
@@ -95,6 +98,10 @@ type AnalyticsData = {
   new_contacts: Array<{ day: string; count: number }>;
   opt_status: { subscribed: number; opted_out: number };
 };
+
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -116,14 +123,26 @@ const C = {
 };
 
 export function AnalyticsPage() {
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState<number | null>(30);
+  // Custom date range. When set, overrides the days preset.
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+  const [agentId, setAgentId] = useState<number | null>(null);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/analytics?days=${days}`, { cache: "no-store" });
+      const qs = new URLSearchParams();
+      if (fromDate) {
+        qs.set("from", fromDate);
+        if (toDate) qs.set("to", toDate);
+      } else if (days != null) {
+        qs.set("days", String(days));
+      }
+      if (agentId) qs.set("agent_id", String(agentId));
+      const res = await fetch(`/api/analytics?${qs.toString()}`, { cache: "no-store" });
       if (!res.ok) return;
       const j = await res.json();
       setData(j);
@@ -137,7 +156,18 @@ export function AnalyticsPage() {
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days]);
+  }, [days, fromDate, toDate, agentId]);
+
+  function pickPreset(d: number) {
+    setDays(d);
+    setFromDate("");
+    setToDate("");
+  }
+  function pickCustomRange(from: string, to: string) {
+    setDays(null);
+    setFromDate(from);
+    setToDate(to);
+  }
 
   const dailyData = useMemo(() => {
     if (!data) return [];
@@ -202,25 +232,71 @@ export function AnalyticsPage() {
             Your messaging performance {loading && "(refreshing…)"}
           </div>
         </div>
-        <div className="flex gap-1">
-          {[
-            { label: "24h", d: 1 },
-            { label: "7d", d: 7 },
-            { label: "30d", d: 30 },
-            { label: "90d", d: 90 },
-          ].map((opt) => (
-            <button
-              key={opt.d}
-              onClick={() => setDays(opt.d)}
-              className={`rounded-full px-3 py-1 text-xs ${
-                days === opt.d
-                  ? "bg-wa-greenDark text-white"
-                  : "bg-white text-wa-text hover:bg-wa-panelDark"
-              }`}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            {[
+              { label: "24h", d: 1 },
+              { label: "7d", d: 7 },
+              { label: "30d", d: 30 },
+              { label: "90d", d: 90 },
+            ].map((opt) => (
+              <button
+                key={opt.d}
+                onClick={() => pickPreset(opt.d)}
+                className={`rounded-full px-3 py-1 text-xs ${
+                  !fromDate && days === opt.d
+                    ? "bg-wa-greenDark text-white"
+                    : "bg-white text-wa-text hover:bg-wa-panelDark"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 rounded-full border border-wa-border bg-white px-2 py-1 text-xs">
+            <span className="text-[10px] text-wa-textMuted">From</span>
+            <input
+              type="date"
+              value={fromDate}
+              max={toDate || ymd(new Date())}
+              onChange={(e) => pickCustomRange(e.target.value, toDate || ymd(new Date()))}
+              className="bg-transparent text-xs outline-none"
+            />
+            <span className="text-[10px] text-wa-textMuted">to</span>
+            <input
+              type="date"
+              value={toDate}
+              min={fromDate || undefined}
+              max={ymd(new Date())}
+              onChange={(e) => pickCustomRange(fromDate, e.target.value)}
+              className="bg-transparent text-xs outline-none"
+              disabled={!fromDate}
+            />
+            {fromDate && (
+              <button
+                onClick={() => pickPreset(30)}
+                title="Clear custom range"
+                className="ml-1 text-[10px] text-wa-textMuted hover:text-wa-text"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {data && data.agents.length > 0 && (
+            <select
+              value={agentId ?? ""}
+              onChange={(e) => setAgentId(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-full border border-wa-border bg-white px-3 py-1 text-xs"
+              title="Filter analytics to one agent"
             >
-              {opt.label}
-            </button>
-          ))}
+              <option value="">All agents</option>
+              {data.agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -405,7 +481,12 @@ export function AnalyticsPage() {
           <section className="rounded-lg border border-wa-border bg-white p-5">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-sm font-medium">Inbound heatmap (when customers message us)</div>
-              <div className="text-[10px] text-wa-textMuted">Server time · last {data.days} days</div>
+              <div className="text-[10px] text-wa-textMuted">
+                {data.range.from} → {data.range.to} ({data.days} day{data.days === 1 ? "" : "s"})
+                {data.agent_id && data.agents.find((a) => a.id === data.agent_id)
+                  ? ` · ${data.agents.find((a) => a.id === data.agent_id)!.name} only`
+                  : ""}
+              </div>
             </div>
             <Heatmap heatmap={data.heatmap} />
           </section>
@@ -490,23 +571,50 @@ export function AnalyticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.agents.map((a) => (
-                      <tr key={a.id}>
-                        <td className="border-b border-wa-border py-2 font-medium">{a.name}</td>
-                        <td className="border-b border-wa-border py-2">
-                          <span className="rounded bg-wa-panel px-2 py-0.5 text-[10px]">{a.role}</span>
-                        </td>
-                        <td className="border-b border-wa-border py-2 text-right">{a.messages_sent}</td>
-                        <td className="border-b border-wa-border py-2 text-right">{a.conversations_assigned}</td>
-                        <td className="border-b border-wa-border py-2 text-right">{a.notes_written}</td>
-                        <td className="border-b border-wa-border py-2 text-right">{a.broadcasts_created}</td>
-                      </tr>
-                    ))}
+                    {data.agents.map((a) => {
+                      const active = agentId === a.id;
+                      return (
+                        <tr
+                          key={a.id}
+                          onClick={() => setAgentId(active ? null : a.id)}
+                          className={`cursor-pointer hover:bg-wa-panel/40 ${
+                            active ? "bg-wa-bubbleOut/50" : ""
+                          }`}
+                          title="Click to filter the whole dashboard to this agent"
+                        >
+                          <td className="border-b border-wa-border py-2 font-medium">
+                            {a.name}
+                            {active && (
+                              <span className="ml-2 rounded bg-wa-greenDark px-1.5 py-0.5 text-[10px] text-white">
+                                selected
+                              </span>
+                            )}
+                          </td>
+                          <td className="border-b border-wa-border py-2">
+                            <span className="rounded bg-wa-panel px-2 py-0.5 text-[10px]">{a.role}</span>
+                          </td>
+                          <td className="border-b border-wa-border py-2 text-right">{a.messages_sent}</td>
+                          <td className="border-b border-wa-border py-2 text-right">{a.conversations_assigned}</td>
+                          <td className="border-b border-wa-border py-2 text-right">{a.notes_written}</td>
+                          <td className="border-b border-wa-border py-2 text-right">{a.broadcasts_created}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+                <div className="mt-2 text-[11px] text-wa-textMuted">
+                  Tip: click an agent row to drill into their day-by-day activity below.
+                </div>
               </>
             )}
           </section>
+
+          {/* Per-agent daily activity (drill-down) */}
+          <PerAgentDailySection
+            data={data}
+            selectedAgentId={agentId}
+            onPick={setAgentId}
+          />
 
           {/* Lead acquisition + Subscriber breakdown */}
           <section className="grid gap-6 lg:grid-cols-2">
@@ -716,5 +824,128 @@ function EmptyChart({ label }: { label: string }) {
     <div className="flex h-40 items-center justify-center rounded border border-dashed border-wa-border text-xs text-wa-textMuted">
       {label}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-agent daily activity. Renders a line chart of messages-sent + notes per
+// day for the selected agent. When no agent is picked, shows a stacked bar
+// chart of all agents' daily messages for the period (so a manager can spot
+// who's pulling weight day-by-day).
+
+function PerAgentDailySection({
+  data,
+  selectedAgentId,
+  onPick,
+}: {
+  data: AnalyticsData;
+  selectedAgentId: number | null;
+  onPick: (id: number | null) => void;
+}) {
+  const agentName = (id: number) => data.agents.find((a) => a.id === id)?.name || `Agent ${id}`;
+
+  // Collect distinct days in the range, sorted ascending.
+  const allDays = Array.from(
+    new Set(data.daily_per_agent.map((r) => r.day)),
+  ).sort();
+
+  // Solo view (one agent selected): messages + notes line.
+  const soloRows = selectedAgentId
+    ? allDays.map((day) => {
+        const row = data.daily_per_agent.find(
+          (r) => r.agent_id === selectedAgentId && r.day === day,
+        );
+        return {
+          day: day.slice(5),
+          Messages: row?.messages || 0,
+          Notes: row?.notes || 0,
+        };
+      })
+    : [];
+
+  // Multi view (no filter): stacked bars of every agent's daily messages.
+  const multiRows = !selectedAgentId
+    ? allDays.map((day) => {
+        const out: Record<string, any> = { day: day.slice(5) };
+        for (const a of data.agents) {
+          const row = data.daily_per_agent.find(
+            (r) => r.agent_id === a.id && r.day === day,
+          );
+          out[a.name] = row?.messages || 0;
+        }
+        return out;
+      })
+    : [];
+
+  const palette = [
+    C.greenDark,
+    C.sky,
+    C.purple,
+    C.amber,
+    C.pink,
+    C.indigo,
+    C.red,
+    C.gray,
+  ];
+
+  return (
+    <section className="rounded-lg border border-wa-border bg-white p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium">
+            {selectedAgentId
+              ? `Daily activity — ${agentName(selectedAgentId)}`
+              : "Daily messages by agent"}
+          </div>
+          <div className="text-[10px] text-wa-textMuted">
+            {selectedAgentId
+              ? "Messages sent + notes written, day by day. Use the dropdown above (or click a row) to switch agents."
+              : "Stacked daily messages-sent per agent for the selected date range. Click an agent in the table to focus."}
+          </div>
+        </div>
+        {selectedAgentId && (
+          <button
+            onClick={() => onPick(null)}
+            className="rounded border border-wa-border bg-white px-3 py-1 text-xs hover:bg-wa-panel"
+          >
+            ← Back to all agents
+          </button>
+        )}
+      </div>
+
+      {allDays.length === 0 ? (
+        <EmptyChart label="No agent activity in this range." />
+      ) : selectedAgentId ? (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={soloRows} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="#f1f5f9" />
+            <XAxis dataKey="day" stroke="#94a3b8" fontSize={11} />
+            <YAxis stroke="#94a3b8" fontSize={11} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="Messages" fill={C.greenDark} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Notes" fill={C.purple} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={multiRows} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="#f1f5f9" />
+            <XAxis dataKey="day" stroke="#94a3b8" fontSize={11} />
+            <YAxis stroke="#94a3b8" fontSize={11} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {data.agents.slice(0, 8).map((a, i) => (
+              <Bar
+                key={a.id}
+                dataKey={a.name}
+                stackId="agents"
+                fill={palette[i % palette.length]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </section>
   );
 }
