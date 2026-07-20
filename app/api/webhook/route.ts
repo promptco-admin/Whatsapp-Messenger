@@ -8,6 +8,7 @@ import { logError as auditLogError, logActivity } from "@/lib/audit";
 import { maybeCreditFastReply, recordLeadScoreEvent } from "@/lib/lead-score";
 import { captureCsatReply } from "@/lib/csat-runner";
 import { sendPushToAll, isPushEnabled } from "@/lib/push";
+import { relayCrmApproval } from "@/lib/crm-relay";
 import type { AdRoutingRule } from "@/app/api/settings/ad-routing/route";
 
 export const dynamic = "force-dynamic";
@@ -197,6 +198,10 @@ export async function POST(req: Request) {
           let mediaId: string | null = null;
           let mediaMime: string | null = null;
           let mediaFilename: string | null = null;
+          // Captured when a "button" (template quick-reply) or "interactive"
+          // (button_reply) message carries a crm_approve:/crm_disapprove:
+          // payload — relayed to Prompt-Solar CRM after the message is stored.
+          let crmApprovalPayload: string | null = null;
           if (type === "text") body = msg.text?.body ?? null;
           else if (type === "image") {
             body = msg.image?.caption || "";
@@ -221,6 +226,7 @@ export async function POST(req: Request) {
             mediaMime = msg.sticker?.mime_type ?? null;
           } else if (type === "button") {
             body = msg.button?.text || msg.button?.payload || "[button reply]";
+            crmApprovalPayload = msg.button?.payload ?? null;
           } else if (type === "interactive") {
             const itype = msg.interactive?.type;
             const br = msg.interactive?.button_reply;
@@ -228,6 +234,7 @@ export async function POST(req: Request) {
             const nfm = msg.interactive?.nfm_reply;
             if (itype === "button_reply" || br) {
               body = br?.title || br?.id || "[button reply]";
+              crmApprovalPayload = br?.id ?? null;
             } else if (itype === "list_reply" || lr) {
               body = lr?.title || lr?.id || "[list reply]";
               if (lr?.description) body += ` — ${lr.description}`;
@@ -564,6 +571,17 @@ export async function POST(req: Request) {
           if (isNewMessage && !suppressAutomation) {
             handleInboundForFlows(contactId, body || "", isFirstInbound).catch((e) =>
               console.error("[webhook] flow error", e),
+            );
+          }
+
+          // Prompt-Solar CRM integration: a tap on the finalize-approval
+          // Approve/Disapprove buttons relays straight to the CRM's Supabase
+          // regardless of opt-out/automation-suppression state — declining a
+          // deal isn't a marketing reply, and the customer already opted in
+          // by receiving that message in the first place.
+          if (isNewMessage && crmApprovalPayload) {
+            relayCrmApproval(crmApprovalPayload).catch((e) =>
+              console.error("[webhook] crm approval relay error", e),
             );
           }
         }

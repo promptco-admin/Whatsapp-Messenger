@@ -12,11 +12,15 @@ export function middleware(req: NextRequest) {
   // public static assets (logo, favicon, robots, etc — anything with a file
   // extension served from /public). The login page can't load /prompt-logo.png
   // unless this bypass exists, because the request has no auth cookie yet.
-  // Also skip the click-tracker `/r/<code>` short-link redirector.
+  // Also skip the click-tracker `/r/<code>` short-link redirector, and
+  // /api/external/* (Prompt-Solar CRM's server-to-server calls — these carry
+  // their own Authorization: Bearer <CRM_SERVICE_KEY> checked in-route via
+  // requireServiceAuth(), not the wa_session cookie).
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
     pathname === "/api/webhook" ||
+    pathname.startsWith("/api/external/") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/r/") ||
     pathname === "/favicon.ico" ||

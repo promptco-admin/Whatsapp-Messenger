@@ -118,6 +118,29 @@ export async function requireAdmin(): Promise<User> {
   return u;
 }
 
+/**
+ * Auth for server-to-server callers (Prompt-Solar CRM's edge functions) that
+ * have no browser session to carry a wa_session cookie. Checks a static
+ * bearer token instead — set CRM_SERVICE_KEY to a long random value and
+ * configure the same value on the CRM side. Throws a 401-style error like
+ * requireUser() so API routes can handle both the same way.
+ */
+export function requireServiceAuth(req: Request): void {
+  const expected = process.env.CRM_SERVICE_KEY;
+  if (!expected) {
+    const err: any = new Error("CRM_SERVICE_KEY not configured");
+    err.status = 500;
+    throw err;
+  }
+  const header = req.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token || token !== expected) {
+    const err: any = new Error("Unauthorized");
+    err.status = 401;
+    throw err;
+  }
+}
+
 /** Purge expired sessions. Call opportunistically. */
 export function purgeExpiredSessions() {
   db().prepare("DELETE FROM sessions WHERE expires_at < ?").run(new Date().toISOString());
