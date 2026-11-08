@@ -22,7 +22,7 @@ export type Broadcast = {
   template_name: string;
   language: string;
   segment_tag: string | null;
-  status: "pending" | "scheduled" | "running" | "completed" | "failed";
+  status: "pending" | "scheduled" | "running" | "paused" | "completed" | "failed";
   total: number;
   sent: number;
   delivered: number;
