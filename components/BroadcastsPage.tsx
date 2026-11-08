@@ -10,6 +10,7 @@ type StatusFilter =
   | "all"
   | "scheduled"
   | "running"
+  | "paused"
   | "completed"
   | "failed";
 
@@ -23,6 +24,7 @@ const STATUS_PILLS: Array<{ key: StatusFilter; label: string; tone: string }> = 
   { key: "all", label: "All", tone: "" },
   { key: "scheduled", label: "Scheduled", tone: "text-purple-700" },
   { key: "running", label: "Running", tone: "text-blue-700" },
+  { key: "paused", label: "Paused", tone: "text-amber-700" },
   { key: "completed", label: "Completed", tone: "text-green-700" },
   { key: "failed", label: "Has failures", tone: "text-red-700" },
 ];
@@ -72,6 +74,7 @@ export function BroadcastsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
   const [search, setSearch] = useState("");
+  const [resuming, setResuming] = useState(false);
 
   async function load() {
     const res = await fetch("/api/broadcasts", { cache: "no-store" });
@@ -135,12 +138,14 @@ export function BroadcastsPage() {
       all: broadcasts.length,
       scheduled: 0,
       running: 0,
+      paused: 0,
       completed: 0,
       failed: 0,
     };
     for (const b of broadcasts) {
       if (b.status === "scheduled") m.scheduled++;
       if (b.status === "running") m.running++;
+      if (b.status === "paused") m.paused++;
       if (b.status === "completed") m.completed++;
       if ((b.failed || 0) > 0) m.failed++;
     }
@@ -282,8 +287,44 @@ export function BroadcastsPage() {
               <div className="mb-2">
                 <b>Template:</b> {detail.broadcast.template_name} ({detail.broadcast.language})
               </div>
-              <div className="mb-2">
+              <div className="mb-2 flex items-center gap-2">
                 <b>Status:</b> <StatusBadge status={detail.broadcast.status} />
+                {detail.broadcast.status === "paused" && (
+                  <button
+                    onClick={async () => {
+                      if (resuming) return;
+                      if (
+                        !confirm(
+                          "Resume this broadcast? Only remaining pending recipients will be sent to. Make sure the daily limit issue is resolved first.",
+                        )
+                      )
+                        return;
+                      setResuming(true);
+                      try {
+                        const res = await fetch(
+                          `/api/broadcasts/${detail.broadcast.id}`,
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "resume" }),
+                          },
+                        );
+                        const j = await res.json();
+                        if (!res.ok) {
+                          alert(j.error || "Resume failed");
+                          return;
+                        }
+                        await load();
+                      } finally {
+                        setResuming(false);
+                      }
+                    }}
+                    disabled={resuming}
+                    className="ml-auto rounded bg-amber-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {resuming ? "Resuming…" : "Resume"}
+                  </button>
+                )}
               </div>
               <div className="mb-4 grid grid-cols-4 gap-2 rounded bg-white p-2 text-center">
                 <div>
@@ -344,6 +385,7 @@ function StatusBadge({ status, small }: { status: string; small?: boolean }) {
     pending: "bg-gray-100 text-gray-700",
     scheduled: "bg-purple-100 text-purple-800",
     running: "bg-blue-100 text-blue-800",
+    paused: "bg-amber-100 text-amber-800",
     sent: "bg-gray-100 text-gray-700",
     delivered: "bg-green-100 text-green-800",
     read: "bg-sky-100 text-sky-800",

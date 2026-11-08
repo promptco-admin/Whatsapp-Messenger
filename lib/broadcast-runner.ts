@@ -24,6 +24,10 @@ export type BroadcastConfig = {
 };
 
 const SEND_DELAY_MS = 150;
+// Safeguard: if this many sends fail back-to-back, pause the broadcast.
+// Catches "ran out of daily messaging limit" and "number got restricted"
+// before we burn through thousands of recipients.
+const MAX_CONSECUTIVE_FAILURES = 10;
 
 function safeParse<T>(s: string | null, fallback: T): T {
   if (!s) return fallback;
@@ -140,6 +144,9 @@ export async function runBroadcast(broadcastId: number) {
     )
     .all(broadcastId) as any[];
 
+  let consecutiveFailures = 0;
+  let paused = false;
+
   for (const r of recipients) {
     if (r.unsubscribed_at) {
       database
@@ -180,6 +187,7 @@ export async function runBroadcast(broadcastId: number) {
       touchContact(r.contact_id);
 
       database.prepare("UPDATE broadcasts SET sent = sent + 1 WHERE id = ?").run(broadcastId);
+      consecutiveFailures = 0;
     } catch (e: any) {
       const msg = e?.message || String(e);
       database
@@ -196,9 +204,44 @@ export async function runBroadcast(broadcastId: number) {
         },
         contactId: r.contact_id,
       });
+      consecutiveFailures++;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        paused = true;
+        logError({
+          source: "broadcast.paused",
+          message: `Broadcast paused after ${MAX_CONSECUTIVE_FAILURES} consecutive failures. Last error: ${msg}`,
+          context: {
+            broadcast_id: broadcastId,
+            template: broadcast.template_name,
+          },
+        });
+        break;
+      }
     }
 
     await new Promise((res) => setTimeout(res, SEND_DELAY_MS));
+  }
+
+  if (paused) {
+    database
+      .prepare("UPDATE broadcasts SET status = 'paused' WHERE id = ?")
+      .run(broadcastId);
+    const totals = database
+      .prepare("SELECT total, sent, delivered, failed, name FROM broadcasts WHERE id = ?")
+      .get(broadcastId) as
+      | { total: number; sent: number; delivered: number; failed: number; name: string }
+      | undefined;
+    if (totals) {
+      logActivity({
+        user: null,
+        action: "broadcast.pause",
+        entityType: "broadcast",
+        entityId: broadcastId,
+        summary: `Broadcast "${totals.name}" paused after ${MAX_CONSECUTIVE_FAILURES} consecutive failures: ${totals.sent}/${totals.total} sent, ${totals.failed} failed. Remaining recipients stay pending.`,
+        metadata: totals,
+      });
+    }
+    return;
   }
 
   database
